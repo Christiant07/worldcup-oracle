@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+CLAUDE.md
+PLAN.md
+MEMORY.md
+data/
+.DS_Store

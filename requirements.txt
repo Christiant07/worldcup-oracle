@@ -1,0 +1,15 @@
+# Layer 1 — predictor
+pandas
+scikit-learn
+requests
+python-dotenv
+
+# Layer 2 — Claude agent analyst + persona
+anthropic
+
+# Layer 3 — voice (HERO)
+deepgram-sdk
+# (the Deepgram workshop starter app will pin the rest, e.g. websockets / audio I/O)
+
+# Stretch — bracket visual (uncomment if you build it)
+# streamlit        # fastest visual UI
