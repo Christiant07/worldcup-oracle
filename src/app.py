@@ -97,7 +97,7 @@ def run() -> None:
         smart_format=True,
         utterance_end_ms=1200,
         vad_events=True,
-        interim_results=False,
+        interim_results=True,  # required by Deepgram whenever utterance_end_ms is set
     ) as connection:
         mic = pa.open(
             format=pyaudio.paInt16,
@@ -126,6 +126,9 @@ def run() -> None:
                     print("[Oracle] (listening…)", end="\r")
 
                 elif isinstance(msg, ListenV1Results):
+                    # interim_results is on (UtteranceEnd needs it) — only keep finals.
+                    if not msg.is_final:
+                        continue
                     alts = msg.channel.alternatives if msg.channel else []
                     if alts and alts[0].transcript:
                         buf.append(alts[0].transcript)
