@@ -9,7 +9,16 @@ anthropic
 
 # Layer 3 — voice (HERO)
 deepgram-sdk
-# (the Deepgram workshop starter app will pin the rest, e.g. websockets / audio I/O)
+pyaudio          # terminal app mic/speaker I/O
+
+# Web UI — FastAPI backend + browser frontend
+fastapi
+uvicorn[standard]
+python-multipart  # parse multipart audio uploads on /ask
+
+# Stretch — live data + market odds via Browserbase (remote headless browser)
+httpx             # Browserbase Sessions REST API
+playwright        # drives the REMOTE Browserbase browser over CDP (no local browser install needed)
 
 # Stretch — bracket visual (uncomment if you build it)
 # streamlit        # fastest visual UI

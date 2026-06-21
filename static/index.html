@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>World Cup Oracle</title>
+<style>
+:root {
+  --bg:      #06090f;
+  --bg2:     #0a0f1c;
+  --glass:   rgba(255,255,255,0.035);
+  --glass-b: rgba(255,255,255,0.07);
+  --glass-h: rgba(255,255,255,0.055);
+  --gold:    #f5a623;
+  --gold-lo: rgba(245,166,35,0.12);
+  --gold-md: rgba(245,166,35,0.25);
+  --green:   #22c55e;
+  --grn-lo:  rgba(34,197,94,0.12);
+  --blue:    #4facfe;
+  --grey:    #64748b;
+  --red:     #ef4444;
+  --red-lo:  rgba(239,68,68,0.12);
+  --text:    #f1f5f9;
+  --muted:   #64748b;
+  --muted2:  #475569;
+  --line:    rgba(255,255,255,0.07);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{
+  font-family:-apple-system,"Segoe UI",system-ui,sans-serif;
+  background:var(--bg);color:var(--text);min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* ── Background glow mesh ── */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(ellipse 900px 600px at 15% 0%,  rgba(245,166,35,0.055) 0,transparent 70%),
+    radial-gradient(ellipse 700px 500px at 85% 90%, rgba(79,172,254,0.04)  0,transparent 70%),
+    radial-gradient(ellipse 500px 400px at 50% 50%, rgba(34,197,94,0.025)  0,transparent 70%);
+}
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:radial-gradient(rgba(255,255,255,0.025) 1px,transparent 1px);
+  background-size:28px 28px;
+}
+
+/* ══ Loading screen ══ */
+#loader{
+  position:fixed;inset:0;z-index:100;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;
+  background:radial-gradient(ellipse 800px 600px at 50% 35%,#0c1424 0,#06090f 70%);
+  transition:opacity .7s ease,visibility .7s ease;
+}
+#loader.hide{opacity:0;visibility:hidden;}
+.loader-orb{
+  position:relative;width:128px;height:128px;display:grid;place-items:center;
+}
+.loader-orb .ring{
+  position:absolute;border-radius:50%;border:1.5px solid transparent;
+}
+.loader-orb .ring.r1{inset:0;border-top-color:var(--gold);border-right-color:rgba(245,166,35,.35);
+  animation:spin 1.5s linear infinite;}
+.loader-orb .ring.r2{inset:14px;border-bottom-color:var(--blue);border-left-color:rgba(79,172,254,.3);
+  animation:spin 2.4s linear infinite reverse;}
+.loader-orb .ring.r3{inset:28px;border-top-color:rgba(34,197,94,.55);
+  animation:spin 1.9s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+/* Ball sits, gives a little hop, then the World Cup trophy drops and squishes it flat. */
+.squish{position:absolute;inset:0;display:grid;place-items:center;}
+.squish .ball{
+  position:absolute;bottom:34px;font-size:34px;line-height:1;
+  transform-origin:50% 100%;filter:drop-shadow(0 0 12px rgba(245,166,35,.5));
+  animation:ballSquish 2.6s cubic-bezier(.5,.05,.5,.95) infinite;
+}
+.squish .trophy{
+  position:absolute;bottom:66px;font-size:30px;line-height:1;
+  filter:drop-shadow(0 6px 10px rgba(245,166,35,.45));
+  animation:trophyDrop 2.6s cubic-bezier(.5,.05,.5,.95) infinite;
+}
+.squish .shadow{
+  position:absolute;bottom:30px;width:34px;height:7px;border-radius:50%;
+  background:radial-gradient(ellipse,rgba(0,0,0,.5),transparent 70%);
+  animation:shadowSquish 2.6s cubic-bezier(.5,.05,.5,.95) infinite;
+}
+@keyframes ballSquish{
+  0%,16%   {transform:translateY(0) scale(1,1);}
+  26%      {transform:translateY(-12px) scale(.96,1.04);}  /* the little hop */
+  40%      {transform:translateY(0) scale(1.04,.96);}      /* light landing bounce */
+  47%      {transform:translateY(0) scale(1,1);}
+  56%      {transform:translateY(0) scale(1.4,.4);}         /* SQUISHED by the trophy */
+  64%      {transform:translateY(0) scale(1.28,.5);}
+  78%      {transform:translateY(0) scale(.93,1.07);}       /* spring-back overshoot */
+  88%,100% {transform:translateY(0) scale(1,1);}
+}
+@keyframes trophyDrop{
+  0%,16%   {transform:translateY(-24px) rotate(0);opacity:.85;}
+  30%      {transform:translateY(-34px) rotate(-3deg);opacity:1;}  /* rears up before the slam */
+  56%      {transform:translateY(22px) rotate(0);}                  /* slams onto the ball */
+  64%      {transform:translateY(17px);}
+  78%      {transform:translateY(-4px);}
+  88%,100% {transform:translateY(-24px);opacity:.85;}
+}
+@keyframes shadowSquish{
+  0%,16%,88%,100%{transform:scaleX(1);opacity:.5;}
+  26%           {transform:scaleX(.78);opacity:.32;}
+  56%,64%       {transform:scaleX(1.45);opacity:.72;}
+}
+.loader-title{
+  font-size:clamp(22px,4.5vw,34px);font-weight:800;letter-spacing:2px;text-transform:uppercase;
+  background:linear-gradient(90deg,#fbbf24,#fff 45%,#f5a623 60%,#fcd34d);
+  background-size:200% auto;-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;animation:shimmer 2.4s linear infinite;
+}
+@keyframes shimmer{to{background-position:200% center;}}
+.loader-sub{color:var(--muted);font-size:12px;letter-spacing:1.5px;text-transform:uppercase;margin-top:-12px;}
+.loader-bar{width:200px;height:3px;border-radius:3px;background:rgba(255,255,255,.06);overflow:hidden;}
+.loader-bar i{display:block;height:100%;width:40%;border-radius:3px;
+  background:linear-gradient(90deg,transparent,var(--gold),transparent);
+  animation:sweep 1.3s ease-in-out infinite;}
+@keyframes sweep{0%{transform:translateX(-120%);}100%{transform:translateX(320%);}}
+
+/* ── Layout ── */
+.wrap{
+  position:relative;z-index:1;
+  max-width:1080px;margin:0 auto;padding:0 16px 48px;
+}
+
+/* ── Header ── */
+header{
+  position:relative;z-index:1;text-align:center;
+  padding:36px 16px 18px;
+}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--gold-lo);border:1px solid var(--gold-md);
+  border-radius:20px;padding:4px 14px;
+  font-size:10px;font-weight:600;letter-spacing:1.8px;
+  text-transform:uppercase;color:var(--gold);margin-bottom:14px;
+}
+.pill-dot{width:6px;height:6px;border-radius:50%;background:var(--gold);
+  box-shadow:0 0 6px var(--gold);animation:blink 2s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0.35;}}
+h1{
+  font-size:clamp(26px,5vw,44px);font-weight:800;letter-spacing:-0.5px;
+  background:linear-gradient(135deg,#fbbf24 0%,#f5a623 45%,#fcd34d 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+h1 .wc{-webkit-text-fill-color:var(--text);}
+header p{color:var(--muted);font-size:13px;margin-top:8px;
+  max-width:480px;margin-left:auto;margin-right:auto;line-height:1.65;}
+
+/* ── Two-column grid ── */
+.layout{display:grid;grid-template-columns:1fr 370px;gap:16px;align-items:start;}
+@media(max-width:860px){.layout{grid-template-columns:1fr;}}
+
+/* ── Glass card ── */
+.card{
+  background:var(--glass);border:1px solid var(--glass-b);
+  border-radius:20px;padding:20px;
+  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+}
+.card-title{
+  display:flex;align-items:center;gap:8px;
+  font-size:10px;text-transform:uppercase;letter-spacing:2px;
+  color:var(--muted);margin-bottom:16px;
+}
+.card-title .dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--gold);box-shadow:0 0 8px rgba(245,166,35,0.6);
+}
+
+/* ── Matchup badge ── */
+.matchup-badge{
+  display:none;align-items:center;gap:8px;
+  background:var(--gold-lo);border:1px solid var(--gold-md);
+  border-radius:12px;padding:8px 14px;margin-bottom:14px;
+  font-size:14px;font-weight:600;
+}
+.matchup-badge.show{display:flex;}
+.vs-sep{color:var(--gold);font-size:10px;font-weight:500;
+  letter-spacing:1px;text-transform:uppercase;margin:0 4px;}
+.reset-btn{
+  margin-left:auto;font-size:10px;color:var(--muted);cursor:pointer;
+  padding:3px 10px;border:1px solid var(--line);border-radius:6px;
+  background:none;transition:border-color .15s,color .15s;
+}
+.reset-btn:hover{border-color:var(--red);color:var(--red);}
+
+/* ── Chat ── */
+.chat{
+  min-height:180px;max-height:360px;overflow-y:auto;
+  display:flex;flex-direction:column;gap:12px;
+  padding-bottom:6px;margin-bottom:14px;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+.chat:empty::before{
+  content:"Ask the Oracle anything about a World Cup matchup…";
+  color:var(--muted2);font-size:13px;font-style:italic;
+  display:block;padding:48px 0;text-align:center;
+}
+.bubble{
+  max-width:92%;border-radius:14px;padding:10px 14px;
+  font-size:14px;line-height:1.6;
+  animation:fadeUp .18s ease both;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+.bubble.you{
+  align-self:flex-end;
+  background:rgba(79,172,254,0.08);
+  border:1px solid rgba(79,172,254,0.18);
+  color:rgba(241,245,249,.8);font-style:italic;
+}
+.bubble.oracle{
+  align-self:flex-start;
+  background:rgba(245,166,35,0.05);
+  border:1px solid rgba(245,166,35,0.15);
+}
+.oracle-name{
+  font-size:9px;font-weight:700;letter-spacing:2px;
+  text-transform:uppercase;color:var(--gold);margin-bottom:5px;
+  display:flex;align-items:center;gap:6px;
+}
+.oracle-name .speaking{
+  display:none;align-items:flex-end;gap:2px;height:9px;
+}
+.oracle-name .speaking.on{display:inline-flex;}
+.oracle-name .speaking b{width:2px;background:var(--gold);border-radius:1px;animation:eq .9s ease-in-out infinite;}
+.oracle-name .speaking b:nth-child(1){height:4px;animation-delay:0s;}
+.oracle-name .speaking b:nth-child(2){height:9px;animation-delay:.15s;}
+.oracle-name .speaking b:nth-child(3){height:6px;animation-delay:.3s;}
+@keyframes eq{0%,100%{transform:scaleY(.4);}50%{transform:scaleY(1);}}
+.oracle-body{white-space:pre-wrap;}
+
+/* ── Inline probability bars ── */
+.inline-bars{margin-top:12px;padding-top:10px;border-top:1px solid rgba(245,166,35,0.1);}
+.inline-bars.live{border-top-color:rgba(239,68,68,0.3);}
+.live-tag{
+  display:flex;align-items:center;gap:6px;margin-bottom:8px;
+  font-size:9px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:#fca5a5;
+}
+.live-tag b{color:#fff;font-weight:700;letter-spacing:.3px;text-transform:none;font-size:11px;
+  font-variant-numeric:tabular-nums;}
+.live-tag .lt-dot{width:6px;height:6px;border-radius:50%;background:var(--red);
+  box-shadow:0 0 8px var(--red);animation:livePulse 1.1s infinite;}
+.pbar{margin:6px 0;}
+.pbar .pbar-lbl{
+  display:flex;justify-content:space-between;
+  font-size:11px;color:var(--muted);margin-bottom:3px;
+}
+.pbar .pct{font-weight:600;font-variant-numeric:tabular-nums;}
+.pbar-track{background:rgba(255,255,255,0.05);border-radius:5px;height:5px;overflow:hidden;}
+.pbar-fill{height:100%;border-radius:5px;transition:width .55s cubic-bezier(.4,0,.2,1);}
+.pbar-fill.w{background:linear-gradient(90deg,#16a34a,#22c55e);}
+.pbar-fill.d{background:var(--grey);}
+.pbar-fill.l{background:linear-gradient(90deg,#b45309,#f5a623);}
+
+/* ── Thinking dots ── */
+.thinking{align-self:flex-start;display:none;animation:fadeUp .18s ease;}
+.thinking.show{display:flex;}
+.dots{
+  display:flex;gap:5px;padding:10px 14px;
+  background:rgba(245,166,35,0.05);border:1px solid rgba(245,166,35,0.12);
+  border-radius:14px;
+}
+.dots span{
+  width:6px;height:6px;border-radius:50%;background:var(--gold);
+  animation:dotPop 1.4s infinite;
+}
+.dots span:nth-child(2){animation-delay:.2s;}
+.dots span:nth-child(3){animation-delay:.4s;}
+@keyframes dotPop{
+  0%,80%,100%{opacity:.2;transform:scale(.7);}
+  40%{opacity:1;transform:scale(1);}
+}
+
+/* ── Input row ── */
+.input-row{display:flex;gap:8px;align-items:center;}
+#mic{
+  width:48px;height:48px;border-radius:50%;border:none;cursor:pointer;flex-shrink:0;
+  background:radial-gradient(circle at 35% 35%,#fcd34d,var(--gold));
+  color:#1a0800;font-size:20px;display:grid;place-items:center;
+  transition:transform .1s,box-shadow .2s;
+  box-shadow:0 0 18px rgba(245,166,35,0.28);
+}
+#mic:hover{transform:scale(1.06);box-shadow:0 0 28px rgba(245,166,35,0.45);}
+#mic.rec{
+  background:radial-gradient(circle at 35% 35%,#fca5a5,var(--red));
+  color:#fff;box-shadow:0 0 0 0 rgba(239,68,68,0.5);
+  animation:micRing 1.4s infinite;
+}
+@keyframes micRing{
+  0%{box-shadow:0 0 0 0 rgba(239,68,68,.5);}
+  70%{box-shadow:0 0 0 22px rgba(239,68,68,0);}
+  100%{box-shadow:0 0 0 0 rgba(239,68,68,0);}
+}
+#handsFree{
+  width:40px;height:40px;border-radius:50%;border:1px solid var(--line);
+  background:none;color:var(--muted);cursor:pointer;font-size:16px;
+  display:grid;place-items:center;flex-shrink:0;
+  transition:border-color .15s,color .15s,background .15s;
+}
+#handsFree.on{border-color:var(--green);color:var(--green);background:var(--grn-lo);
+  box-shadow:0 0 14px rgba(34,197,94,.25);}
+#textIn{
+  flex:1;background:rgba(255,255,255,0.04);border:1px solid var(--line);
+  color:var(--text);border-radius:12px;padding:12px 14px;font-size:14px;
+  outline:none;transition:border-color .15s;
+}
+#textIn:focus{border-color:rgba(79,172,254,0.35);}
+#askBtn{
+  background:linear-gradient(135deg,#4facfe,#2563eb);color:#fff;
+  border:none;border-radius:12px;padding:0 18px;cursor:pointer;
+  font-size:14px;font-weight:600;height:48px;white-space:nowrap;
+  transition:opacity .15s,transform .1s;
+}
+#askBtn:hover{opacity:.9;transform:scale(1.01);}
+.hint{color:var(--muted2);font-size:11px;margin-top:8px;min-height:16px;}
+
+/* ── Fixtures ── */
+.fix-list{
+  display:flex;flex-direction:column;gap:8px;
+  max-height:620px;overflow-y:auto;
+  scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+}
+.fix{
+  border:1px solid var(--glass-b);border-radius:12px;padding:10px 12px;
+  cursor:pointer;background:var(--glass);
+  transition:border-color .15s,background .15s;
+}
+.fix:hover{border-color:rgba(245,166,35,0.3);background:var(--glass-h);}
+.fix.active{border-color:rgba(245,166,35,0.55);background:rgba(245,166,35,0.04);}
+.fix-hdr{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;}
+.fix-teams{font-size:12px;font-weight:600;color:var(--text);}
+.fix-teams .fvs{color:var(--muted);font-size:10px;font-weight:400;margin:0 4px;}
+.fix-date{color:var(--muted2);font-size:10px;white-space:nowrap;text-align:right;flex-shrink:0;}
+
+/* Probability row: stacked colored bar + labeled numbers */
+.prob-stack{margin-top:4px;}
+.prob-row{display:flex;height:5px;border-radius:3px;overflow:hidden;gap:1px;margin-bottom:4px;}
+.prob-row span{display:block;border-radius:2px;transition:width .5s;}
+.prob-nums{display:flex;font-size:10px;justify-content:space-between;}
+.pn-home{color:rgba(34,197,94,0.85);font-weight:600;}
+.pn-draw{color:var(--grey);text-align:center;flex:1;}
+.pn-away{color:rgba(245,166,35,0.9);font-weight:600;text-align:right;}
+
+/* Live score expand */
+.live-expand{
+  margin-top:8px;padding-top:8px;
+  border-top:1px solid var(--line);display:none;
+}
+.live-expand.show{display:block;}
+.live-help{color:var(--muted2);font-size:9.5px;line-height:1.5;margin-bottom:6px;}
+.live-help b{color:var(--muted);font-weight:600;}
+.live-row{display:flex;gap:6px;align-items:center;}
+.live-score-in{
+  flex:1;background:rgba(255,255,255,0.05);
+  border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:5px 8px;font-size:12px;outline:none;
+}
+.live-score-in:focus{border-color:rgba(239,68,68,0.35);}
+.live-btn{
+  background:var(--red-lo);border:1px solid rgba(239,68,68,0.3);
+  color:var(--red);border-radius:8px;padding:5px 10px;
+  font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;
+}
+.live-btn:hover{background:rgba(239,68,68,0.2);}
+
+.empty{color:var(--muted);font-size:13px;text-align:center;padding:20px 0;}
+
+/* ── Audio playback controls ── */
+.audio-ctl{
+  display:none;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap;
+}
+.audio-ctl.show{display:flex;}
+.audio-ctl button{
+  display:inline-flex;align-items:center;gap:5px;
+  background:rgba(255,255,255,0.04);border:1px solid var(--line);
+  color:var(--muted);border-radius:9px;padding:6px 12px;
+  font-size:12px;font-weight:500;cursor:pointer;
+  transition:border-color .15s,color .15s,background .15s;
+}
+.audio-ctl button:hover{border-color:rgba(79,172,254,0.35);color:var(--text);}
+.audio-ctl button.muted{border-color:rgba(239,68,68,0.35);color:#fca5a5;background:var(--red-lo);}
+.audio-ctl .spk{font-size:11px;color:var(--muted2);margin-left:auto;}
+
+/* ── Expected score line ── */
+.xg-line{
+  margin-top:10px;padding-top:8px;border-top:1px solid rgba(245,166,35,0.1);
+  font-size:11px;color:var(--muted);letter-spacing:.3px;
+}
+.xg-line b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600;}
+.xg-line .xg-tag{color:var(--gold);text-transform:uppercase;font-size:9px;
+  letter-spacing:1.5px;font-weight:700;margin-right:6px;}
+
+/* ── Market odds comparison row ── */
+.odds-row{
+  margin-top:8px;font-size:11px;color:var(--muted);
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+}
+.odds-row .od-who{color:var(--muted2);text-transform:uppercase;font-size:9px;
+  letter-spacing:1.2px;font-weight:700;margin-right:2px;}
+.odds-row .od{display:inline-flex;gap:5px;align-items:center;}
+.odds-row .od b{color:var(--text);font-variant-numeric:tabular-nums;}
+.odds-row .od.mkt b{color:var(--blue);}
+.odds-row .od-sep{color:var(--muted2);}
+.odds-row.checking{color:var(--muted2);font-style:italic;}
+
+/* ── LIVE badge on a verdict ── */
+.live-badge{
+  display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;
+  background:var(--red-lo);border:1px solid rgba(239,68,68,0.35);
+  color:#fca5a5;border-radius:8px;padding:3px 10px;
+  font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;
+}
+.live-badge .ldot{width:6px;height:6px;border-radius:50%;background:var(--red);
+  box-shadow:0 0 8px var(--red);animation:livePulse 1.1s infinite;}
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.7);}}
+.live-badge .lscore{color:#fff;font-weight:700;font-variant-numeric:tabular-nums;}
+
+/* ── Fixture search bar + Next-up badge ── */
+.fix-search{
+  width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--line);
+  color:var(--text);border-radius:10px;padding:9px 12px;font-size:13px;
+  outline:none;margin-bottom:10px;transition:border-color .15s;
+}
+.fix-search:focus{border-color:rgba(79,172,254,0.35);}
+.fix-search::placeholder{color:var(--muted2);}
+.nextup-badge{
+  display:inline-block;background:var(--grn-lo);border:1px solid rgba(34,197,94,0.3);
+  color:var(--green);border-radius:5px;padding:1px 7px;
+  font-size:8px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;
+  margin-left:6px;vertical-align:middle;
+}
+
+/* ── Footer ── */
+footer{
+  position:relative;z-index:1;text-align:center;
+  color:var(--muted2);font-size:11px;padding:24px 16px 36px;line-height:1.75;
+}
+footer strong{color:var(--muted);}
+</style>
+</head>
+<body>
+
+<!-- ══ Loading screen ══ -->
+<div id="loader">
+  <div class="loader-orb">
+    <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span>
+    <span class="squish">
+      <span class="trophy">🏆</span>
+      <span class="ball">⚽</span>
+      <span class="shadow"></span>
+    </span>
+  </div>
+  <div class="loader-title">World&nbsp;Cup&nbsp;Oracle</div>
+  <div class="loader-sub">Summoning 49,000 results…</div>
+  <div class="loader-bar"><i></i></div>
+</div>
+
+<header>
+  <div class="pill"><span class="pill-dot"></span>Voice-Powered Match Oracle</div>
+  <h1><span class="wc">World Cup</span> Oracle</h1>
+  <p>Speak a matchup. The Oracle delivers a verdict grounded in 49,000 international results.</p>
+</header>
+
+<div class="wrap">
+  <div class="layout">
+
+    <!-- Oracle panel -->
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>Consult the Oracle</div>
+
+      <div class="matchup-badge" id="matchupBadge">
+        <span id="matchupText"></span>
+        <button class="reset-btn" id="resetBtn">New match</button>
+      </div>
+
+      <div class="chat" id="chat"></div>
+
+      <div class="thinking" id="thinking">
+        <div class="dots"><span></span><span></span><span></span></div>
+      </div>
+
+      <div class="input-row">
+        <button id="mic" title="Tap to speak (tap again to send)">🎙️</button>
+        <button id="handsFree" title="Hands-free: listen continuously, no tapping. Say “stop” to end.">🎧</button>
+        <input id="textIn" placeholder='e.g. "France vs Brazil — who wins?"' />
+        <button id="askBtn">Ask</button>
+      </div>
+      <div class="hint" id="hint">Tap the mic, or the 🎧 for hands-free. Or type a matchup.</div>
+
+      <div class="audio-ctl" id="audioCtl">
+        <button id="pauseBtn">⏸ Pause</button>
+        <button id="replayBtn">↻ Replay</button>
+        <button id="muteBtn">🔊 Mute</button>
+        <span class="spk">Oracle voice — Deepgram Aura 2</span>
+      </div>
+    </div>
+
+    <!-- Fixtures panel -->
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>Upcoming Fixtures</div>
+      <input class="fix-search" id="fixSearch" placeholder="🔍 Search team, group or stage…" />
+      <div class="fix-list" id="fixList"><div class="empty">Loading fixtures…</div></div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <strong>Model:</strong> Logistic regression · 49,000 international results · Elo + form features<br>
+  <strong>Voice:</strong> Deepgram Nova 3 (STT) + Aura 2 (TTS) &nbsp;·&nbsp; <strong>Analysis:</strong> Claude (Anthropic)
+</footer>
+
+<audio id="player" hidden></audio>
+
+<script>
+const sessionId = crypto.randomUUID ? crypto.randomUUID() : String(Math.random());
+const $  = id => document.getElementById(id);
+const player = $("player");
+
+let activeFixEl = null;
+let processing = false;
+let inflight = null;          // AbortController for the current /ask-stream request
+
+// Auto-fetch Browserbase market odds + live data after a verdict.
+const ENRICH_ENABLED = true;
+
+// ─── Loading screen ──────────────────────────────────────────────────────────
+let loaderHidden = false;
+function hideLoader(){
+  if(loaderHidden) return;
+  loaderHidden = true;
+  $("loader").classList.add("hide");
+}
+// Hide once fixtures resolve, but keep it up at least ~1.4s so it doesn't flash.
+const loaderStart = performance.now();
+function maybeHideLoader(){
+  const wait = Math.max(0, 1400 - (performance.now() - loaderStart));
+  setTimeout(hideLoader, wait);
+}
+window.addEventListener("load", ()=>setTimeout(maybeHideLoader, 200));
+setTimeout(hideLoader, 4000);   // hard fallback
+
+// ─── Audio playback: queue of sentence-sized clips ───────────────────────────
+const audioCtl = $("audioCtl"), pauseBtn = $("pauseBtn"),
+      replayBtn = $("replayBtn"), muteBtn = $("muteBtn");
+let audioQueue = [], audioPlaying = false, streamDone = false;
+let lastAnswerClips = [], muted = false;
+
+function setSpeaking(on){
+  document.querySelectorAll(".oracle-name .speaking").forEach(e=>e.classList.remove("on"));
+  if(on){
+    const all = document.querySelectorAll(".oracle-name .speaking");
+    if(all.length) all[all.length-1].classList.add("on");
+  }
+}
+function resetAudioQueue(){
+  audioQueue = []; audioPlaying = false; streamDone = false;
+  try{ player.pause(); }catch{}
+  player.currentTime = 0;
+  setSpeaking(false);
+}
+function enqueueAudio(b64){
+  lastAnswerClips.push(b64);
+  audioQueue.push(b64);
+  audioCtl.classList.add("show");
+  if(!audioPlaying) playNextClip();
+}
+function playNextClip(){
+  if(!audioQueue.length){ audioPlaying = false; setSpeaking(false); return; }
+  audioPlaying = true;
+  const b64 = audioQueue.shift();
+  player.src = "data:audio/wav;base64," + b64;
+  player.muted = muted;
+  pauseBtn.textContent = "⏸ Pause";
+  setSpeaking(!muted);
+  player.play().catch(()=>{});
+}
+
+player.addEventListener("ended", ()=>{
+  if(audioQueue.length){ playNextClip(); return; }
+  audioPlaying = false; setSpeaking(false);
+  pauseBtn.textContent = "⏸ Pause";
+  // End of the whole answer → in hands-free, listen again.
+  if(streamDone && handsFree && !recording && !processing){
+    setTimeout(()=>{ if(handsFree && !recording && !processing) startRecording(true); }, 350);
+  }
+});
+player.addEventListener("play",  ()=>{ pauseBtn.textContent = "⏸ Pause"; if(!muted) setSpeaking(true); });
+player.addEventListener("pause", ()=>{ if(!player.ended){ pauseBtn.textContent = "▶ Resume"; setSpeaking(false); } });
+
+pauseBtn.onclick = ()=>{ if(player.paused){ player.play().catch(()=>{}); } else { player.pause(); } };
+replayBtn.onclick = ()=>{
+  if(!lastAnswerClips.length) return;
+  audioQueue = lastAnswerClips.slice();
+  audioPlaying = false;
+  playNextClip();
+};
+muteBtn.onclick = ()=>{
+  muted = !muted;
+  player.muted = muted;
+  muteBtn.classList.toggle("muted", muted);
+  muteBtn.textContent = muted ? "🔇 Muted" : "🔊 Mute";
+  if(muted) setSpeaking(false);
+};
+
+function setHint(t){ $("hint").textContent = t; }
+function showThinking(){ $("thinking").classList.add("show"); scrollChat(); }
+function hideThinking(){ $("thinking").classList.remove("show"); }
+function scrollChat(){ const c=$("chat"); c.scrollTop=c.scrollHeight; }
+
+function esc(s){
+  if(!s) return "";
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// The Oracle is voice-first, but Claude sometimes slips in markdown (# headings, ---
+// rules, *emphasis*). Strip it so the chat reads as clean prose. Handles partial tokens
+// mid-stream (a lone open "*") too. Mirrors strip_markdown() on the server (used for TTS).
+function clean(s){
+  if(!s) return "";
+  return s
+    .replace(/^\s{0,3}#{1,6}\s*/gm,"")        // # headings
+    .replace(/^\s*([-*_=])\1{2,}\s*$/gm,"")    // --- horizontal rules
+    .replace(/(\*{1,3}|_{1,3})(.+?)\1/g,"$2")  // *emphasis* / _emphasis_
+    .replace(/[#*]/g,"")                         // stray # and *
+    .replace(/\n{3,}/g,"\n\n")
+    .trimStart();
+}
+
+function setMatchup(home,away){
+  if(home && away){
+    $("matchupText").innerHTML=`${esc(home)}<span class="vs-sep">vs</span>${esc(away)}`;
+    $("matchupBadge").classList.add("show");
+  } else {
+    $("matchupBadge").classList.remove("show");
+  }
+}
+
+function probHtml(probs,home,away,live){
+  if(!probs) return "";
+  const w=(probs.W??0)*100, d=(probs.D??0)*100, l=(probs.L??0)*100;
+  // `live` (optional) = predict_live result → show a LIVE-ADJUSTED tag with the score/minute.
+  let tag="";
+  if(live){
+    const min=(live.minute!=null)?` · ${live.minute}'`:"";
+    tag=`<div class="live-tag"><span class="lt-dot"></span>Live-adjusted `+
+        `<b>${esc(home)} ${live.home_goals}–${live.away_goals} ${esc(away)}</b>${min}</div>`;
+  }
+  return `<div class="inline-bars${live?' live':''}">${tag}
+    <div class="pbar">
+      <div class="pbar-lbl"><span>${esc(home)} win</span><span class="pct">${w.toFixed(0)}%</span></div>
+      <div class="pbar-track"><div class="pbar-fill w" style="width:${w}%"></div></div>
+    </div>
+    <div class="pbar">
+      <div class="pbar-lbl"><span>Draw</span><span class="pct">${d.toFixed(0)}%</span></div>
+      <div class="pbar-track"><div class="pbar-fill d" style="width:${d}%"></div></div>
+    </div>
+    <div class="pbar">
+      <div class="pbar-lbl"><span>${esc(away)} win</span><span class="pct">${l.toFixed(0)}%</span></div>
+      <div class="pbar-track"><div class="pbar-fill l" style="width:${l}%"></div></div>
+    </div>
+  </div>`;
+}
+
+function addBubble(role,text){
+  const div=document.createElement("div");
+  div.className="bubble "+role;
+  if(role==="you"){
+    div.textContent=`"${text}"`;
+  } else {
+    div.innerHTML=`<div class="oracle-name">⚡ Oracle</div><div class="oracle-body">${esc(clean(text))}</div>`;
+  }
+  hideThinking();
+  $("chat").appendChild(div);
+  scrollChat();
+  return div;
+}
+
+function xgHtml(xg,home,away){
+  if(!xg || xg.home_xg==null || xg.away_xg==null) return "";
+  return `<div class="xg-line"><span class="xg-tag">Expected</span>`+
+         `<b>${esc(home)} ${xg.home_xg.toFixed(1)} – ${xg.away_xg.toFixed(1)} ${esc(away)}</b></div>`;
+}
+function liveBadgeHtml(live,home,away){
+  if(!live || !live.live) return "";
+  const min=(live.minute!=null)?` · ${live.minute}'`:"";
+  const rc=live.red_cards||{};
+  const rcTxt=(rc.home||rc.away)?` · 🟥 ${esc(home)} ${rc.home||0}–${rc.away||0} ${esc(away)}`:"";
+  return `<div class="live-badge"><span class="ldot"></span>LIVE `+
+         `<span class="lscore">${esc(live.score||"")}</span>${min}${rcTxt}</div>`;
+}
+function oddsRowHtml(odds,probs,home){
+  if(!odds) return "";
+  const oraclePct=Math.round((probs?.W??0)*100);
+  const mktPct=Math.round((odds.home_prob??0)*100);
+  const src=esc((odds.source||"Polymarket").replace(/\s*\(api\)/i,""));  // never show "(API)"
+  const who=home?`${esc(home)} to win`:"To win";
+  return `<div class="odds-row" title="Chance ${home?esc(home)+" wins":"of a home win"}: our model vs the live betting market">`+
+    `<span class="od-who">${who}</span>`+
+    `<span class="od">Oracle <b>${oraclePct}%</b></span>`+
+    `<span class="od-sep">·</span>`+
+    `<span class="od mkt">${src} <b>${mktPct}%</b></span>`+
+  `</div>`;
+}
+
+function createOracleBubbleShell(probs,home,away,xg,live,liveProbs){
+  const div=document.createElement("div");
+  div.className="bubble oracle";
+  // If we have live-adjusted probabilities (a score was given), the bars show THOSE,
+  // tagged with the scoreline — the same numbers the Oracle is speaking.
+  const bars=liveProbs ? probHtml(liveProbs,home,away,liveProbs) : probHtml(probs,home,away);
+  div.innerHTML=`${liveBadgeHtml(live,home,away)}`+
+                `<div class="oracle-name">⚡ Oracle`+
+                `<span class="speaking"><b></b><b></b><b></b></span></div>`+
+                `<div class="oracle-body"></div>${bars}`+
+                `${xgHtml(xg,home,away)}<div class="enrich"></div>`;
+  hideThinking();
+  $("chat").appendChild(div);
+  scrollChat();
+  return div;
+}
+
+// ─── Browserbase enrichment: market odds + live state ────────────────────────
+let lastEnrichKey=null, liveTimer=null;
+
+async function enrichMatchup(home,away,probs,bubbleEl){
+  const key=home+"|"+away;
+  if(key===lastEnrichKey) return;
+  lastEnrichKey=key;
+  if(liveTimer){ clearInterval(liveTimer); liveTimer=null; }
+
+  const box=bubbleEl && bubbleEl.querySelector(".enrich");
+  if(!box) return;
+  box.innerHTML='<div class="odds-row checking">Checking market &amp; live data…</div>';
+
+  const q=`home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`;
+  const [oddsR,liveR]=await Promise.allSettled([
+    fetch(`/odds?${q}`).then(r=>r.json()),
+    fetch(`/live?${q}`).then(r=>r.json()),
+  ]);
+  if(key!==lastEnrichKey) return;
+
+  const odds=oddsR.status==="fulfilled"?oddsR.value:null;
+  const live=liveR.status==="fulfilled"?liveR.value:null;
+  let html="";
+  if(live && live.live) html+=liveBadgeHtml(live,home,away);
+  if(odds) html+=oddsRowHtml(odds,probs,home);
+  box.innerHTML=html;
+  scrollChat();
+
+  if(live && live.live) scheduleLiveRefresh(home,away,box,probs);
+}
+
+function scheduleLiveRefresh(home,away,box,probs){
+  liveTimer=setInterval(async ()=>{
+    if(home+"|"+away!==lastEnrichKey){ clearInterval(liveTimer); liveTimer=null; return; }
+    try{
+      const live=await fetch(`/live?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`).then(r=>r.json());
+      const oddsEl=box.querySelector(".odds-row:not(.checking)");
+      let html=(live && live.live)?liveBadgeHtml(live,home,away):"";
+      if(oddsEl) html+=oddsEl.outerHTML;
+      box.innerHTML=html;
+      if(!(live && live.live)){ clearInterval(liveTimer); liveTimer=null; }
+    }catch{}
+  },15000);
+}
+
+// ─── Streaming send (cancellable) ────────────────────────────────────────────
+const STOP_RE = /\b(stop chat|stop listening|that'?s all|that is all|goodbye)\b|^\s*stop[\s.!]*$/i;
+
+async function send(fd, userShown){
+  // Supersede any in-flight request — this is what makes "tap mic mid-reply" work.
+  if(inflight){ inflight.abort(); }
+  const ac = new AbortController();
+  inflight = ac;
+  processing = true;
+
+  resetAudioQueue();
+  lastAnswerClips = [];
+  showThinking();
+  setHint("The Oracle is consulting the data…");
+
+  let oracleBubble=null, oracleBodyEl=null, fullText="";
+  let curHome=null, curAway=null, curProbs=null, curXg=null, curLive=null, curLiveProbs=null;
+  let stoppedByCommand=false;
+
+  try{
+    const res=await fetch("/ask-stream",{method:"POST",body:fd,signal:ac.signal});
+    if(!res.ok) throw new Error("server error");
+    const reader=res.body.getReader();
+    const dec=new TextDecoder();
+    let buf="";
+
+    outer: while(true){
+      const {done,value}=await reader.read();
+      if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      const parts=buf.split("\n\n");
+      buf=parts.pop();
+
+      for(const part of parts){
+        const line=part.trim();
+        if(!line.startsWith("data: ")) continue;
+        let ev;
+        try{ ev=JSON.parse(line.slice(6)); }catch{ continue; }
+
+        if(ev.type==="transcript"){
+          // Spoken "stop" while hands-free → end the loop, don't run a verdict.
+          if(handsFree && STOP_RE.test(ev.text||"")){
+            stoppedByCommand=true;
+            handsFree=false; updateHandsFreeUI();
+            setHint("Hands-free stopped. Tap the mic when you want me back.");
+            ac.abort();
+            break outer;
+          }
+          if(ev.text && !userShown){
+            hideThinking(); addBubble("you",ev.text); showThinking();
+          }
+
+        } else if(ev.type==="matchup"){
+          curHome=ev.home; curAway=ev.away; curProbs=ev.probs;
+          curXg=ev.xg; curLive=ev.live; curLiveProbs=ev.live_probs||null;
+          if(ev.home && ev.away) setMatchup(ev.home,ev.away);
+
+        } else if(ev.type==="token"){
+          if(!oracleBubble){
+            oracleBubble=createOracleBubbleShell(curProbs,curHome,curAway,curXg,curLive,curLiveProbs);
+            oracleBodyEl=oracleBubble.querySelector(".oracle-body");
+          }
+          fullText+=ev.text;
+          if(oracleBodyEl) oracleBodyEl.textContent=clean(fullText);
+          scrollChat();
+
+        } else if(ev.type==="audio"){
+          enqueueAudio(ev.data);
+
+        } else if(ev.type==="error"){
+          hideThinking();
+          addBubble("oracle", ev.text || "Something went wrong — try again.");
+          break outer;
+
+        } else if(ev.type==="done"){
+          streamDone=true;
+          hideThinking();
+          if(ev.text && !oracleBubble){
+            // simple non-streaming response (reset / error / name-a-matchup)
+            if(ev.reset){
+              $("chat").innerHTML="";
+              setMatchup(null,null);
+              if(activeFixEl){ activeFixEl.classList.remove("active"); activeFixEl=null; }
+            }
+            if(ev.home!==undefined) setMatchup(ev.home,ev.away);
+            addBubble("oracle",ev.text);
+            if(ev.audio) enqueueAudio(ev.audio);
+          }
+          break outer;
+        }
+      }
+    }
+  } catch(e){
+    if(!ac.signal.aborted){
+      hideThinking();
+      addBubble("oracle","Something went wrong — try again.");
+    }
+  }
+
+  // ── Cleanup ──
+  if(ac.signal.aborted){
+    // Superseded (newer request) or stopped by command — tidy up our half-built bubble.
+    if(oracleBubble && !fullText){ oracleBubble.remove(); }
+    if(stoppedByCommand){ streamDone=true; resetAudioQueue(); }
+    if(inflight===ac){ inflight=null; processing=false; hideThinking(); }
+    return;
+  }
+
+  if(inflight===ac){ inflight=null; processing=false; }
+
+  if(ENRICH_ENABLED && oracleBubble && curHome && curAway){
+    enrichMatchup(curHome, curAway, curProbs, oracleBubble);
+  }
+  setHint(handsFree?"Hands-free on — I'll listen again after I finish speaking.":"Tap the mic or type a follow-up.");
+}
+
+function askText(q){
+  if(!q.trim()) return;
+  hideThinking();
+  addBubble("you",q);
+  showThinking();
+  const fd=new FormData();
+  fd.append("session_id",sessionId);
+  fd.append("text",q);
+  send(fd,true);
+}
+
+// ─── Recording: shared by push-to-talk + hands-free, with silence detection ──
+let recording=false, recorder=null, chunks=[], micStream=null, lastAuto=false, discardRec=false;
+let audioCtx=null, analyser=null, vadRAF=null, speechDetected=false, silenceStart=0, recStart=0;
+let peakRms=0, speechFrames=0;
+let handsFree=false;
+
+const SPEECH_THRESH = 0.016;   // RMS above this = speech (lowered so quieter voices register)
+const PEAK_FLOOR    = 0.045;   // any frame this loud counts as speech even if brief
+const SILENCE_HANG  = 1250;    // ms of trailing silence → end of utterance
+const MIN_SPEECH    = 350;     // ms; ignore silence before this
+const MAX_UTTER     = 14000;   // ms hard cap on one utterance
+const NOSPEECH_STOP = 12000;   // ms of dead air → recycle the mic
+
+async function startRecording(auto){
+  if(recording) return;
+  // A fresh manual capture interrupts whatever the Oracle is doing.
+  if(!auto){
+    if(inflight) inflight.abort();
+    resetAudioQueue();
+  }
+  try{
+    micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  }catch{
+    setHint("Mic access denied — use the text box instead.");
+    handsFree=false; updateHandsFreeUI();
+    return;
+  }
+  recorder=new MediaRecorder(micStream);
+  chunks=[]; lastAuto=auto; discardRec=false;
+  speechDetected=false; silenceStart=0; recStart=performance.now();
+  peakRms=0; speechFrames=0;
+  recorder.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
+  recorder.onstop=onRecStop;
+  recorder.start();
+  recording=true;
+  $("mic").classList.add("rec");
+  setHint(auto?"Hands-free — listening… (pause when you're done, or say “stop”)":"Listening… tap the mic to send.");
+  if(auto) startVad();
+}
+
+function stopRecording(){ if(recording && recorder) recorder.stop(); }
+function cancelRecording(){ if(recording && recorder){ discardRec=true; recorder.stop(); } }
+
+function onRecStop(){
+  stopVad();
+  if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
+  recording=false;
+  $("mic").classList.remove("rec");
+
+  if(discardRec){ discardRec=false; return; }
+
+  const blob=new Blob(chunks,{type:(recorder&&recorder.mimeType)||"audio/webm"});
+  // Hands-free with no speech detected → don't fire on pure silence, but DON'T drop it
+  // silently either (that's the "it ignored me and I had to tap the mic" bug). Surface a
+  // hint and re-listen so the user knows it's still on.
+  if(lastAuto && !speechDetected){
+    if(handsFree){
+      setHint("Didn’t catch anything — still listening… (speak up a touch)");
+      setTimeout(()=>{ if(handsFree && !processing && !recording) startRecording(true); }, 200);
+    }
+    return;
+  }
+  const fd=new FormData();
+  fd.append("session_id",sessionId);
+  fd.append("audio",blob,"speech.webm");
+  send(fd,false);
+}
+
+function startVad(){
+  try{
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const src=audioCtx.createMediaStreamSource(micStream);
+    analyser=audioCtx.createAnalyser(); analyser.fftSize=512;
+    src.connect(analyser);
+    const data=new Uint8Array(analyser.fftSize);
+    const tick=()=>{
+      if(!recording || !analyser) return;
+      analyser.getByteTimeDomainData(data);
+      let sum=0;
+      for(let i=0;i<data.length;i++){ const v=(data[i]-128)/128; sum+=v*v; }
+      const rms=Math.sqrt(sum/data.length);
+      const now=performance.now(), elapsed=now-recStart;
+      if(rms>peakRms) peakRms=rms;
+      // Speech = a couple of frames over the soft threshold, OR one clearly loud frame.
+      // Robust to quiet/clipped starts that the old single-threshold check dropped.
+      if(rms>SPEECH_THRESH){
+        if(++speechFrames>=2) speechDetected=true;
+        silenceStart=0;
+      } else if(peakRms>PEAK_FLOOR){
+        speechDetected=true;
+      }
+      if(!speechDetected){ /* still waiting for the user to start */ }
+      else if(rms<=SPEECH_THRESH){
+        if(!silenceStart) silenceStart=now;
+        else if(now-silenceStart>SILENCE_HANG && elapsed>MIN_SPEECH){ stopRecording(); return; }
+      }
+      if(elapsed>MAX_UTTER){ stopRecording(); return; }
+      if(!speechDetected && elapsed>NOSPEECH_STOP){ stopRecording(); return; }
+      vadRAF=requestAnimationFrame(tick);
+    };
+    vadRAF=requestAnimationFrame(tick);
+  }catch{}
+}
+function stopVad(){
+  if(vadRAF){ cancelAnimationFrame(vadRAF); vadRAF=null; }
+  if(audioCtx){ try{ audioCtx.close(); }catch{} audioCtx=null; }
+  analyser=null;
+}
+
+// ─── Controls ────────────────────────────────────────────────────────────────
+$("mic").onclick=()=>{ if(recording) stopRecording(); else startRecording(false); };
+
+function updateHandsFreeUI(){ $("handsFree").classList.toggle("on",handsFree); }
+$("handsFree").onclick=()=>{
+  handsFree=!handsFree;
+  updateHandsFreeUI();
+  if(handsFree){
+    setHint("Hands-free on — speak whenever. Say “stop” or tap 🎧 to end.");
+    if(!recording && !processing) startRecording(true);
+  } else {
+    setHint("Hands-free off.");
+    if(recording && lastAuto) cancelRecording();
+  }
+};
+
+$("askBtn").onclick=()=>{ const q=$("textIn").value.trim(); if(!q) return; $("textIn").value=""; askText(q); };
+$("textIn").addEventListener("keydown",e=>{ if(e.key==="Enter") $("askBtn").click(); });
+$("resetBtn").onclick=()=>askText("new match");
+
+// ─── Flag helper ────────────────────────────────────────────────────────────
+const FLAGS={
+  "France":"🇫🇷","Brazil":"🇧🇷","Argentina":"🇦🇷","Germany":"🇩🇪",
+  "Spain":"🇪🇸","England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Portugal":"🇵🇹","Netherlands":"🇳🇱",
+  "Belgium":"🇧🇪","Italy":"🇮🇹","Uruguay":"🇺🇾","Mexico":"🇲🇽",
+  "United States":"🇺🇸","Canada":"🇨🇦","Japan":"🇯🇵","South Korea":"🇰🇷",
+  "Morocco":"🇲🇦","Senegal":"🇸🇳","Ghana":"🇬🇭","Nigeria":"🇳🇬",
+  "Ecuador":"🇪🇨","Colombia":"🇨🇴","Chile":"🇨🇱","Peru":"🇵🇪",
+  "Saudi Arabia":"🇸🇦","IR Iran":"🇮🇷","Iran":"🇮🇷","Australia":"🇦🇺","Qatar":"🇶🇦",
+  "Poland":"🇵🇱","Croatia":"🇭🇷","Switzerland":"🇨🇭","Denmark":"🇩🇰",
+  "Sweden":"🇸🇪","Serbia":"🇷🇸","Turkey":"🇹🇷","Ukraine":"🇺🇦",
+  "Tunisia":"🇹🇳","Cameroon":"🇨🇲","Côte d'Ivoire":"🇨🇮","Egypt":"🇪🇬",
+  "Curaçao":"🇨🇼","Venezuela":"🇻🇪","Paraguay":"🇵🇾","Bolivia":"🇧🇴",
+  "Costa Rica":"🇨🇷","Panama":"🇵🇦","Honduras":"🇭🇳","Guatemala":"🇬🇹",
+  "Jamaica":"🇯🇲","Trinidad and Tobago":"🇹🇹","Austria":"🇦🇹","Norway":"🇳🇴",
+  "Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿","Czechia":"🇨🇿","DR Congo":"🇨🇩","Haiti":"🇭🇹",
+  "Jordan":"🇯🇴","Uzbekistan":"🇺🇿","South Africa":"🇿🇦","Iraq":"🇮🇶",
+  "Cape Verde Islands":"🇨🇻","Bosnia-Herzegovina":"🇧🇦","Algeria":"🇩🇿","Ivory Coast":"🇨🇮",
+  "New Zealand":"🇳🇿",
+};
+function flag(name){ return FLAGS[name]||"🌍"; }
+
+// ─── Fixtures ────────────────────────────────────────────────────────────────
+let allFixtures=[];
+
+function todayStr(){
+  const n=new Date();
+  return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+}
+
+// Render a fixture's kickoff in US Pacific time, e.g. "Sat Jun 21 · 9:00 AM PT".
+// football-data.org gives a UTC ISO timestamp (f.datetime); fall back to the date.
+const PT_DATE=new Intl.DateTimeFormat('en-US',{timeZone:'America/Los_Angeles',
+  weekday:'short',month:'short',day:'numeric'});
+const PT_TIME=new Intl.DateTimeFormat('en-US',{timeZone:'America/Los_Angeles',
+  hour:'numeric',minute:'2-digit'});
+function fmtKickoff(f){
+  const iso=f.datetime||f.date;
+  if(!iso) return "";
+  const d=new Date(iso);
+  if(isNaN(d)) return (f.date||"").slice(0,10);
+  const day=PT_DATE.format(d);
+  // Only show a time if the source actually carried one (datetime, not a bare date).
+  if(!f.datetime) return day;
+  return `${day} · ${PT_TIME.format(d)} PT`;
+}
+
+function buildFixCard(f,isFirst){
+  const p=f.probs||{};
+  const w=(p.W??0)*100, d=(p.D??0)*100, l=(p.L??0)*100;
+  const hf=flag(f.home_team), af=flag(f.away_team);
+  const dateStr=fmtKickoff(f);
+  const uid=`live-${f.home_team}-${f.away_team}`.replace(/\s+/g,"_");
+  const badge=isFirst?'<span class="nextup-badge">Next up</span>':"";
+
+  const isLive = f.status==="IN_PLAY"||f.status==="PAUSED";
+  const scoreStr = (isLive && f.score && f.score.home!=null)
+    ? ` <span style="color:var(--red);font-weight:700;font-variant-numeric:tabular-nums;">${f.score.home}–${f.score.away}</span>` : "";
+  const liveBadge = isLive
+    ? `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--red-lo);border:1px solid rgba(239,68,68,0.4);color:#fca5a5;border-radius:5px;padding:1px 7px;font-size:8px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-left:6px;"><span style="width:5px;height:5px;border-radius:50%;background:var(--red);animation:livePulse 1.1s infinite;display:inline-block;"></span>LIVE</span>` : "";
+
+  const el=document.createElement("div");
+  el.className="fix" + (isLive?" live-fix":"");
+  if(isLive) el.style.borderColor="rgba(239,68,68,0.4)";
+  el.innerHTML=`
+    <div class="fix-hdr">
+      <div class="fix-teams">${hf} ${esc(f.home_team)}${scoreStr}<span class="fvs">vs</span>${esc(f.away_team)} ${af}${badge}${liveBadge}</div>
+      <span class="fix-date">${isLive?"⚽ In progress":dateStr}</span>
+    </div>
+    <div class="prob-stack">
+      <div class="prob-row">
+        <span style="width:${w}%;background:linear-gradient(90deg,#16a34a,#22c55e)"></span>
+        <span style="width:${d}%;background:#4b5563"></span>
+        <span style="width:${l}%;background:linear-gradient(90deg,#b45309,#f5a623)"></span>
+      </div>
+      <div class="prob-nums">
+        <span class="pn-home">${hf} ${w.toFixed(0)}%</span>
+        <span class="pn-draw">Draw ${d.toFixed(0)}%</span>
+        <span class="pn-away">${l.toFixed(0)}% ${af}</span>
+      </div>
+    </div>
+    <div class="live-expand" id="${uid}">
+      <div class="live-help">The Oracle <b>auto-checks live odds &amp; score</b> after each verdict.
+        Only type here to <b>override</b> with a score it can't see yet.</div>
+      <div class="live-row">
+        <input class="live-score-in" placeholder='Live score e.g. "1-0 at 67 min"' />
+        <button class="live-btn">🔴 Re-run with score</button>
+      </div>
+    </div>`;
+
+  el.onclick=e=>{
+    if(e.target.classList.contains("live-score-in")||
+       e.target.classList.contains("live-btn")) return;
+    if(activeFixEl) activeFixEl.classList.remove("active");
+    el.classList.add("active"); activeFixEl=el;
+    el.querySelector(".live-expand").classList.toggle("show");
+    askText(`Give me your verdict on ${f.home_team} versus ${f.away_team}.`);
+  };
+
+  const scoreIn=el.querySelector(".live-score-in");
+  const scoreBtn=el.querySelector(".live-btn");
+  scoreBtn.onclick=e=>{
+    e.stopPropagation();
+    const sc=scoreIn.value.trim();
+    if(!sc) return;
+    if(activeFixEl) activeFixEl.classList.remove("active");
+    el.classList.add("active"); activeFixEl=el;
+    askText(`${f.home_team} versus ${f.away_team} — the live score is ${sc}. Who do you back to win from here and why?`);
+  };
+  scoreIn.onkeydown=e=>{ if(e.key==="Enter"){e.stopPropagation();scoreBtn.click();} };
+  scoreIn.onclick=e=>e.stopPropagation();
+  return el;
+}
+
+function renderFixtures(query){
+  const list=$("fixList");
+  const q=(query||"").trim().toLowerCase();
+  const matches=allFixtures.filter(f=>{
+    if(!q) return true;
+    return [f.home_team,f.away_team,f.stage,f.group]
+      .filter(Boolean).some(s=>String(s).toLowerCase().includes(q));
+  });
+  if(!matches.length){
+    list.innerHTML=`<div class="empty">No matches found${q?` for “${esc(query)}”`:""}.</div>`;
+    return;
+  }
+  list.innerHTML="";
+  matches.slice(0,40).forEach((f,i)=>list.appendChild(buildFixCard(f,i===0)));
+}
+
+async function loadFixtures(){
+  try{
+    const res=await fetch("/fixtures");
+    const fx=await res.json();
+    if(!Array.isArray(fx) || !fx.length){
+      $("fixList").innerHTML='<div class="empty">No fixtures cached.</div>'; maybeHideLoader(); return;
+    }
+    const cutoff=todayStr();
+    const k=f=>(f.datetime||f.date||"");
+    allFixtures=fx
+      .filter(f=>((f.date||"").slice(0,10))>=cutoff)
+      .sort((a,b)=>(k(a)<k(b)?-1:k(a)>k(b)?1:0));
+    if(!allFixtures.length){
+      $("fixList").innerHTML='<div class="empty">No upcoming fixtures.</div>'; maybeHideLoader(); return;
+    }
+    renderFixtures("");
+  } catch{
+    $("fixList").innerHTML='<div class="empty">Could not load fixtures.</div>';
+  }
+  maybeHideLoader();
+}
+$("fixSearch").addEventListener("input",e=>renderFixtures(e.target.value));
+loadFixtures();
+
+// Auto-refresh fixtures: every 60s normally, every 20s when a game is live.
+function scheduleFixtureRefresh(){
+  const hasLive = allFixtures.some(f=>f.status==="IN_PLAY"||f.status==="PAUSED");
+  const delay = hasLive ? 20000 : 60000;
+  setTimeout(async ()=>{
+    const q=$("fixSearch").value;
+    await loadFixtures();
+    if(q) renderFixtures(q);
+    scheduleFixtureRefresh();
+  }, delay);
+}
+scheduleFixtureRefresh();
+</script>
+</body>
+</html>

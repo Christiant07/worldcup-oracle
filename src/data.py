@@ -61,7 +61,7 @@ def upcoming_fixtures(competition: str = "WC") -> list[dict]:
             resp = requests.get(
                 f"{FOOTBALL_DATA_BASE}/competitions/{competition}/matches",
                 headers={"X-Auth-Token": key},
-                params={"status": "SCHEDULED"},
+                params={"status": "SCHEDULED,TIMED,IN_PLAY,PAUSED"},
                 timeout=10,
             )
             resp.raise_for_status()
@@ -75,7 +75,17 @@ def upcoming_fixtures(competition: str = "WC") -> list[dict]:
                         m["awayTeam"]["name"], m["awayTeam"]["name"]
                     ),
                     "date": (m.get("utcDate") or "")[:10],
+                    "datetime": m.get("utcDate") or "",  # full ISO kickoff (UTC) for tz display
                     "neutral": True,  # WC matches are on neutral ground
+                    "status": m.get("status", "SCHEDULED"),
+                    "score": (
+                        {
+                            "home": (m.get("score") or {}).get("fullTime", {}).get("home"),
+                            "away": (m.get("score") or {}).get("fullTime", {}).get("away"),
+                        }
+                        if m.get("status") in ("IN_PLAY", "PAUSED")
+                        else None
+                    ),
                 }
                 for m in matches
             ]
