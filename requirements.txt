@@ -9,7 +9,6 @@ anthropic
 
 # Layer 3 — voice (HERO)
 deepgram-sdk
-pyaudio          # terminal app mic/speaker I/O
 
 # Web UI — FastAPI backend + browser frontend
 fastapi
