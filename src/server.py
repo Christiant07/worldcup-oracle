@@ -78,7 +78,8 @@ _SESSIONS: dict[str, dict] = {}
 import time as _time
 _FIXTURES_CACHE: list[dict] | None = None
 _FIXTURES_CACHE_AT: float = 0.0
-_FIXTURES_TTL = 90  # seconds — short enough to catch a game going IN_PLAY
+_FIXTURES_TTL = 90       # seconds between normal refreshes
+_FIXTURES_LIVE_TTL = 30  # faster refresh while a match is IN_PLAY
 
 # Cache the STT keyterm list (team names) so we build it once.
 _KEYTERMS_CACHE: list[str] | None = None
@@ -99,11 +100,10 @@ _TEAM_ALIASES = {
 def _fixtures() -> list[dict]:
     global _FIXTURES_CACHE, _FIXTURES_CACHE_AT
     now = _time.monotonic()
-    # Bust the cache if it's stale OR if any cached game is currently in-play
-    # (so the sidebar stays fresh without restarting the server).
-    cache_stale = (now - _FIXTURES_CACHE_AT) > _FIXTURES_TTL
     has_live = any(f.get("status") in ("IN_PLAY", "PAUSED") for f in (_FIXTURES_CACHE or []))
-    if _FIXTURES_CACHE is None or cache_stale or has_live:
+    ttl = _FIXTURES_LIVE_TTL if has_live else _FIXTURES_TTL
+    cache_stale = (now - _FIXTURES_CACHE_AT) > ttl
+    if _FIXTURES_CACHE is None or cache_stale:
         try:
             fx = upcoming_fixtures("WC")
         except Exception:
