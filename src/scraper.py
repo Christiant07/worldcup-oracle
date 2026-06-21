@@ -26,10 +26,23 @@ load_dotenv()
 _BB_SESSIONS_URL = "https://api.browserbase.com/v1/sessions"
 _NAV_TIMEOUT_MS = 30_000   # hard cap so the demo never hangs
 _SEL_TIMEOUT_MS = 5_000
+_FOOTBALL_DATA_BASE = "https://api.football-data.org/v4"
+
+# Same name map as data.py so team lookups are consistent.
+_FD_NAME_MAP = {
+    "Korea Republic": "South Korea",
+    "USA": "United States",
+    "Ivory Coast": "Côte d'Ivoire",
+    "Bosnia and Herzegovina": "Bosnia-Herzegovina",
+    "China PR": "China",
+    "Congo DR": "DR Congo",
+    "Iran": "IR Iran",
+    "Türkiye": "Turkey",
+}
 
 # Market-odds source order. The public Polymarket Gamma API is fast (~1s) and exact,
 # so it leads; Browserbase is the fallback that scrapes when the API has no market for
-# a pairing. (Browserbase remains PRIMARY for live match data — see get_live_data.)
+# a pairing. (football-data.org API is PRIMARY for live match data — see get_live_data.)
 # Swap to ["browserbase", "api"] to force the remote-browser scrape first.
 ODDS_SOURCE_ORDER = ["api", "browserbase"]
 
@@ -109,13 +122,73 @@ def _browserbase_page(url: str) -> Iterator["object"]:
 
 # ─── Live match data ──────────────────────────────────────────────────────────
 
+def _names_match(a: str, b: str) -> bool:
+    """True if two team names are equivalent after normalisation."""
+    na, nb = _norm(a), _norm(b)
+    if na == nb:
+        return True
+    ta = [w for w in na.split() if len(w) > 2]
+    tb = [w for w in nb.split() if len(w) > 2]
+    return bool(set(ta) & set(tb))
+
+
+def get_live_from_football_data(home: str, away: str) -> dict:
+    """Check football-data.org for a live match between home and away.
+
+    Returns the same shape as get_live_data() so callers are source-agnostic.
+    Never raises.
+    """
+    key = os.getenv("FOOTBALL_DATA_API_KEY")
+    if not key:
+        return {"live": False}
+    try:
+        resp = httpx.get(
+            f"{_FOOTBALL_DATA_BASE}/matches",
+            headers={"X-Auth-Token": key},
+            params={"status": "IN_PLAY,PAUSED"},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        for m in resp.json().get("matches", []):
+            m_home = _FD_NAME_MAP.get(m["homeTeam"]["name"], m["homeTeam"]["name"])
+            m_away = _FD_NAME_MAP.get(m["awayTeam"]["name"], m["awayTeam"]["name"])
+            if not (_names_match(home, m_home) and _names_match(away, m_away)):
+                continue
+            ft = (m.get("score") or {}).get("fullTime") or {}
+            h_goals, a_goals = ft.get("home"), ft.get("away")
+            if h_goals is None or a_goals is None:
+                return {"live": False}
+            minute = m.get("minute")
+            return {
+                "live": True,
+                "score": f"{h_goals}-{a_goals}",
+                "minute": minute,
+                "red_cards": {"home": 0, "away": 0},
+                "possession": {},
+                "source": "football-data.org",
+            }
+        return {"live": False}
+    except Exception as e:
+        _log(f"football-data.org live fetch failed: {type(e).__name__}")
+        return {"live": False}
+
+
 def get_live_data(home: str, away: str) -> dict:
     """Find a currently-live match between `home` and `away` and scrape its state.
 
     Returns {"live": True, "score": "2-1", "minute": 67,
              "red_cards": {...}, "possession": {...}} on success,
     else {"live": False}. Never raises.
+
+    Source priority:
+      1. football-data.org API (fast, reliable, free-tier includes live scores)
+      2. Browserbase → BBC Sport (fallback when API key missing or match not found)
     """
+    # Primary: football-data.org API
+    fd = get_live_from_football_data(home, away)
+    if fd.get("live"):
+        return fd
+
     if not _browserbase_enabled():
         return {"live": False}
 

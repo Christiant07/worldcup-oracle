@@ -277,10 +277,35 @@ def predict_score_endpoint(home: str, away: str, neutral: bool = True) -> JSONRe
 
 @app.get("/live")
 async def live_endpoint(home: str, away: str) -> JSONResponse:
-    """Best-effort live-match data (Browserbase). Always returns a dict."""
+    """Best-effort live-match data. Always returns a dict."""
     loop = asyncio.get_running_loop()
     data = await loop.run_in_executor(None, _safe_live, home, away)
     return JSONResponse(data)
+
+
+@app.get("/live-prob")
+async def live_prob_endpoint(home: str, away: str) -> JSONResponse:
+    """Live match data + live-adjusted win probabilities in one call.
+
+    Returns {live: {...}, live_probs: {...}|null}.
+    live_probs is null when no live match is found or when minute is unavailable.
+    """
+    loop = asyncio.get_running_loop()
+    live = await loop.run_in_executor(None, _safe_live, home, away)
+
+    live_probs = None
+    if live and live.get("live"):
+        score_str = live.get("score", "0-0")
+        minute = live.get("minute")
+        m = re.match(r"(\d+)\s*[-–]\s*(\d+)", score_str or "")
+        if m and minute is not None:
+            hg, ag = int(m.group(1)), int(m.group(2))
+            try:
+                live_probs = predict_live(home, away, hg, ag, int(minute), neutral=True)
+            except Exception:
+                pass
+
+    return JSONResponse({"live": live, "live_probs": live_probs})
 
 
 @app.get("/odds")

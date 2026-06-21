@@ -728,6 +728,17 @@ function createOracleBubbleShell(probs,home,away,xg,live,liveProbs){
 // ─── Browserbase enrichment: market odds + live state ────────────────────────
 let lastEnrichKey=null, liveTimer=null;
 
+function updateBarsInBubble(bubbleEl, home, away, live, liveProbs){
+  if(!bubbleEl || !liveProbs) return;
+  const barsEl=bubbleEl.querySelector(".inline-bars");
+  if(!barsEl) return;
+  // Replace the bars in-place with live-adjusted probabilities.
+  const tmp=document.createElement("div");
+  tmp.innerHTML=probHtml(liveProbs, home, away, liveProbs);
+  const newBars=tmp.firstElementChild;
+  if(newBars) barsEl.replaceWith(newBars);
+}
+
 async function enrichMatchup(home,away,probs,bubbleEl){
   const key=home+"|"+away;
   if(key===lastEnrichKey) return;
@@ -741,30 +752,38 @@ async function enrichMatchup(home,away,probs,bubbleEl){
   const q=`home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`;
   const [oddsR,liveR]=await Promise.allSettled([
     fetch(`/odds?${q}`).then(r=>r.json()),
-    fetch(`/live?${q}`).then(r=>r.json()),
+    fetch(`/live-prob?${q}`).then(r=>r.json()),
   ]);
   if(key!==lastEnrichKey) return;
 
   const odds=oddsR.status==="fulfilled"?oddsR.value:null;
-  const live=liveR.status==="fulfilled"?liveR.value:null;
+  const liveProbData=liveR.status==="fulfilled"?liveR.value:null;
+  const live=liveProbData?.live||null;
+  const liveProbs=liveProbData?.live_probs||null;
+
   let html="";
   if(live && live.live) html+=liveBadgeHtml(live,home,away);
   if(odds) html+=oddsRowHtml(odds,probs,home);
   box.innerHTML=html;
+
+  if(liveProbs) updateBarsInBubble(bubbleEl, home, away, live, liveProbs);
   scrollChat();
 
-  if(live && live.live) scheduleLiveRefresh(home,away,box,probs);
+  if(live && live.live) scheduleLiveRefresh(home,away,box,probs,bubbleEl);
 }
 
-function scheduleLiveRefresh(home,away,box,probs){
+function scheduleLiveRefresh(home,away,box,probs,bubbleEl){
   liveTimer=setInterval(async ()=>{
     if(home+"|"+away!==lastEnrichKey){ clearInterval(liveTimer); liveTimer=null; return; }
     try{
-      const live=await fetch(`/live?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`).then(r=>r.json());
+      const data=await fetch(`/live-prob?home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`).then(r=>r.json());
+      const live=data?.live||null;
+      const liveProbs=data?.live_probs||null;
       const oddsEl=box.querySelector(".odds-row:not(.checking)");
       let html=(live && live.live)?liveBadgeHtml(live,home,away):"";
       if(oddsEl) html+=oddsEl.outerHTML;
       box.innerHTML=html;
+      if(liveProbs) updateBarsInBubble(bubbleEl, home, away, live, liveProbs);
       if(!(live && live.live)){ clearInterval(liveTimer); liveTimer=null; }
     }catch{}
   },15000);
