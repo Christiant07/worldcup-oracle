@@ -1260,7 +1260,10 @@ function renderFixtures(query){
 
 async function loadFixtures(){
   try{
-    const res=await fetch("/fixtures");
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),12000);
+    const res=await fetch("/fixtures",{signal:ctrl.signal});
+    clearTimeout(timer);
     const fx=await res.json();
     if(!Array.isArray(fx) || !fx.length){
       $("fixList").innerHTML='<div class="empty">No fixtures cached.</div>'; maybeHideLoader(); return;
@@ -1275,7 +1278,7 @@ async function loadFixtures(){
     }
     renderFixtures("");
   } catch{
-    $("fixList").innerHTML='<div class="empty">Could not load fixtures.</div>';
+    $("fixList").innerHTML='<div class="empty">Connecting…</div>';
   }
   maybeHideLoader();
 }
@@ -1285,7 +1288,7 @@ loadFixtures();
 // Auto-refresh fixtures: every 60s normally, every 20s when a game is live.
 function scheduleFixtureRefresh(){
   const hasLive = allFixtures.some(f=>f.status==="IN_PLAY"||f.status==="PAUSED");
-  const delay = hasLive ? 20000 : 60000;
+  const delay = !allFixtures.length ? 5000 : hasLive ? 20000 : 60000;
   setTimeout(async ()=>{
     const q=$("fixSearch").value;
     await loadFixtures();
