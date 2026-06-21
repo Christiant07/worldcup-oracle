@@ -298,6 +298,59 @@ def _scrape_odds_browserbase(home: str, away: str) -> dict | None:
     }
 
 
+# ─── Google "win probability" scrape (Browserbase) ───────────────────────────────
+
+def get_web_probabilities(home: str, away: str) -> dict | None:
+    """Scrape Google's match-prediction percentages for `home` vs `away`.
+
+    Google surfaces bookmaker-derived win probabilities on its sports cards and in
+    result snippets ("<Team> 62%"). We load a Google search via Browserbase and pull
+    the percentages that sit next to each team name. STRICTLY best-effort — Google is
+    heavily bot-protected, so this usually returns None and the caller falls back to
+    the Polymarket API or the Claude web-search consensus. Never raises.
+
+    Returns {"source": "Google", "home_prob", "draw_prob", "away_prob"} or None.
+    """
+    if not _browserbase_enabled():
+        return None
+    try:
+        q = f"{home} vs {away} win probability prediction".replace(" ", "+")
+        url = f"https://www.google.com/search?q={q}&hl=en"
+        with _browserbase_page(url) as page:
+            try:
+                page.wait_for_timeout(2_000)
+            except Exception:
+                pass
+            body = page.content()
+
+        # Pull "<team> ... NN%" for each side, scoped to a small window so we don't
+        # grab a percentage belonging to an unrelated snippet on the page.
+        def _pct_for(team: str) -> float | None:
+            toks = [t for t in re.sub(r"[^A-Za-z ]", " ", team).split() if len(t) > 2]
+            if not toks:
+                return None
+            alt = "|".join(re.escape(t) for t in toks)
+            m = re.search(rf"(?:{alt})\b[^%<]{{0,60}}?(\d{{1,3}})\s*%", body, re.I)
+            return int(m.group(1)) / 100.0 if m else None
+
+        home_p, away_p = _pct_for(home), _pct_for(away)
+        if home_p is None or away_p is None:
+            return None
+        # Reject degenerate scrapes (percentages that don't look like a 1X2 market).
+        if home_p + away_p > 1.05 or max(home_p, away_p) >= 0.99:
+            return None
+        draw_p = round(max(0.0, 1 - home_p - away_p), 2)
+        return {
+            "source": "Google",
+            "home_prob": round(home_p, 2),
+            "draw_prob": draw_p,
+            "away_prob": round(away_p, 2),
+        }
+    except Exception as e:
+        _log(f"get_web_probabilities fell back: {type(e).__name__}")
+        return None
+
+
 # ─── Public prediction-market APIs (accurate fallback, no Browserbase) ────────────
 
 def _norm(s: str) -> str:

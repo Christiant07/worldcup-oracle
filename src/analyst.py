@@ -15,7 +15,7 @@ from difflib import get_close_matches
 import anthropic
 from dotenv import load_dotenv
 
-from src.features import ELO_DEFAULT
+from src.features import ELO_DEFAULT, ALIASES as _ALIAS_TO_CANON, resolve_team
 from src.model import _load_or_train, predict, predict_live
 
 load_dotenv()
@@ -248,7 +248,7 @@ def _facts_to_text(facts: dict) -> str:
 # can recompute the real in-play probabilities instead of the persona guessing.
 
 _NUM_WORDS = {
-    "nil": 0, "zero": 0, "nought": 0, "oh": 0,
+    "nil": 0, "zero": 0, "nought": 0, "oh": 0, "nothing": 0, "none": 0,
     "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
     "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
     "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
@@ -312,21 +312,77 @@ def _strip_ordinals(text: str) -> str:
     return re.sub(r"(\d+)(?:st|nd|rd|th)\b", r"\1", text, flags=re.IGNORECASE)
 
 
+# Tokens that may sit *between* the two score digits ("one to nil" → 1 0).
+_SCORE_CONNECTORS = {"to", "nil", "v", "vs", "versus", "against"}
+
+
+def _extract_minute(norm: str) -> int | None:
+    """Find a match minute in normalized text ("80 minute", "minute 80", "80'")."""
+    m = re.search(r"\b(\d{1,3})\s*(?:’|'|min\b|mins\b|minute|minutes)", norm)
+    if not m:
+        m = re.search(r"\bminute\s+(\d{1,3})\b", norm)
+    if m:
+        mv = int(m.group(1))
+        if 1 <= mv <= 130:
+            return mv
+    return None
+
+
+def _extract_scoreline(norm: str, exclude: int | None = None) -> tuple[int, int] | None:
+    """Find a scoreline from normalized, space-separated tokens.
+
+    Operates on TOKENS, not raw digits, so a single two-digit number like "80"
+    (a minute) is never split into the score "8 – 0". A score is two numeric
+    tokens (each 0–19) that are adjacent, optionally joined by one connector
+    token ("one to nil" → 1 0). Also handles "5 all" / "two each" level scores.
+    """
+    # Level score: "5 all", "two each", "three apiece".
+    level = re.search(r"\b(\d{1,2})\s*(?:all|each|apiece)\b", norm)
+    if level:
+        g = int(level.group(1))
+        if g <= 19:
+            return g, g
+
+    toks = norm.split()
+    nums = [(i, int(t)) for i, t in enumerate(toks) if t.isdigit()]
+    for k in range(len(nums) - 1):
+        (i, x), (j, y) = nums[k], nums[k + 1]
+        if x > 19 or y > 19:
+            continue
+        gap = j - i
+        # Adjacent tokens, or one connector word between them.
+        if gap == 1 or (gap == 2 and toks[i + 1].lower() in _SCORE_CONNECTORS):
+            if exclude is not None and exclude in (x, y):
+                continue
+            return x, y
+    return None
+
+
 def parse_score_only(text: str) -> tuple[int, int] | None:
     """Extract just a scoreline (no minute) from free-form speech, or None.
 
     Used when the user gives a score but no clock — so we can note it in the
     fact block without computing a time-dependent probability from a guessed minute.
     """
+    return _extract_scoreline(_normalize_numbers(_strip_ordinals(text)))
+
+
+def parse_minute_only(text: str) -> int | None:
+    """Extract a standalone match minute ("80", "in the 80th", "minute 80"), else None.
+
+    Used for the multi-turn case where the score was given in an earlier turn
+    ("Spain are losing one-nil") and the clock arrives separately ("eighty").
+    Returns None unless the utterance is essentially just a minute, so it never
+    swallows the second number of a scoreline.
+    """
     norm = _normalize_numbers(_strip_ordinals(text))
-    level = re.search(r"\b(\d{1,2})\s*(?:all|each|apiece)\b", norm)
-    if level:
-        g = int(level.group(1))
-        return g, g
-    for mm in re.finditer(r"\b(\d{1,2})\s*(?:-|–|to|nil|:)?\s*(\d{1,2})\b", norm):
-        x, y = int(mm.group(1)), int(mm.group(2))
-        if x <= 19 and y <= 19:
-            return x, y
+    m = _extract_minute(norm)
+    if m is not None:
+        return m
+    # Bare lone number with no scoreline present → treat as the minute.
+    nums = [int(t) for t in norm.split() if t.isdigit()]
+    if len(nums) == 1 and 1 <= nums[0] <= 130 and _extract_scoreline(norm) is None:
+        return nums[0]
     return None
 
 
@@ -338,32 +394,13 @@ def parse_live_score(text: str) -> tuple[int, int, int] | None:
     "5 all", and minutes like "80th minute", "at 67 min", "minute 80".
     """
     norm = _normalize_numbers(_strip_ordinals(text))
-
-    minute: int | None = None
-    m = re.search(r"\b(\d{1,3})\s*(?:’|’|min\b|mins\b|minute|minutes)", norm)
-    if not m:
-        m = re.search(r"\bminute\s+(\d{1,3})\b", norm)
-    if m:
-        mv = int(m.group(1))
-        if 1 <= mv <= 130:
-            minute = mv
+    minute = _extract_minute(norm)
     if minute is None:
         return None
-
-    hg = ag = None
-    # "5 all" / "two each" → level score.
-    level = re.search(r"\b(\d{1,2})\s*(?:all|each|apiece)\b", norm)
-    if level:
-        hg = ag = int(level.group(1))
-    else:
-        for mm in re.finditer(r"\b(\d{1,2})\s*(?:-|–|to|nil|:)?\s*(\d{1,2})\b", norm):
-            x, y = int(mm.group(1)), int(mm.group(2))
-            if x <= 19 and y <= 19 and minute not in (x, y):
-                hg, ag = x, y
-                break
-    if hg is None:
+    score = _extract_scoreline(norm, exclude=minute)
+    if score is None:
         return None
-    return hg, ag, minute
+    return score[0], score[1], minute
 
 
 # ─── Natural-language matchup detection ─────────────────────────────────────────
@@ -374,23 +411,45 @@ def _known_teams() -> list[str]:
     return list(elo.keys())
 
 
-def canonical_team(name: str | None) -> str | None:
+# Alias → model-key map is shared with the feature layer (src.features.ALIASES) so
+# the voice path and the predictor resolve names identically.
+
+# Common English words that fuzzy-match a country and create phantom "teams"
+# (e.g. STT mis-hearing turns "that Spain" → a fake opponent). Never a team.
+_STOPWORD_NAMES = {
+    "oh", "that", "this", "the", "them", "they", "their", "there", "than",
+    "chad",  # an actual country but never in WC fixtures; avoid the "I had"→Chad misfire
+}
+
+
+def canonical_team(name: str | None, strict: bool = False) -> str | None:
     """Snap a free-form team name to the model's known spelling.
 
-    Handles case differences and near-misses (e.g. 'USA' → 'United States',
-    'Ivory Coast' → 'Côte d'Ivoire') so predict() doesn't silently fall back
-    to a default Elo for an unrecognised string.
+    Handles case differences, common aliases ('USA' → 'United States',
+    'Ivory Coast' → 'Côte d'Ivoire') and near-misses so predict() doesn't
+    silently fall back to a default Elo for an unrecognised string.
+
+    With strict=True, returns None when the name does not confidently resolve to
+    a known team (instead of echoing the input back). Use strict for matchup
+    detection so a mishearing like "That Spain" or "Oh" never becomes an opponent.
     """
     if not name:
         return None
+    cleaned = name.strip()
+    if cleaned.lower() in _STOPWORD_NAMES:
+        return None
     known = _known_teams()
-    if name in known:
-        return name
+    if cleaned in known:
+        return cleaned
     lower = {k.lower(): k for k in known}
-    if name.lower() in lower:
-        return lower[name.lower()]
-    match = get_close_matches(name, known, n=1, cutoff=0.82)
-    return match[0] if match else name
+    if cleaned.lower() in lower:
+        return lower[cleaned.lower()]
+    if cleaned.lower() in _ALIAS_TO_CANON:
+        return _ALIAS_TO_CANON[cleaned.lower()]
+    match = get_close_matches(cleaned, known, n=1, cutoff=0.86)
+    if match:
+        return match[0]
+    return None if strict else cleaned
 
 
 _MATCHUP_SYSTEM = """\
@@ -438,10 +497,12 @@ def _extract_matchup_regex(
     found_ordered.sort()
     found = [name for _, name in found_ordered]
 
-    # Fuzzy pass: capitalized 1-3 word phrases not yet matched
+    # Fuzzy pass: capitalized 1-3 word phrases not yet matched. STRICT — a phrase
+    # only counts if it confidently resolves to a known team, so a misheard
+    # "That Spain" / "Oh" never becomes a phantom opponent.
     if len(found) < 2:
         for phrase in re.findall(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\b", user_text):
-            c = canonical_team(phrase)
+            c = canonical_team(phrase, strict=True)
             if c and c not in found:
                 found.append(c)
             if len(found) == 2:
@@ -463,21 +524,87 @@ def _extract_matchup_regex(
     return None
 
 
+def _explicit_known_teams(
+    user_text: str,
+    fixtures: list[dict] | None = None,
+) -> list[str]:
+    """Confidently-known teams literally named in the text, in mention order.
+
+    Exact word-boundary scan over known team names + aliases (no fuzzy guessing),
+    so this never invents a team. Used to decide when an utterance names a *new*
+    matchup vs. when it's a follow-up about the current one.
+    """
+    fixtures = fixtures or []
+    names = set(_known_teams())
+    for f in fixtures:
+        for k in ("home_team", "away_team"):
+            if f.get(k):
+                names.add(f[k])
+
+    found: list[tuple[int, str]] = []
+
+    def _add(pos: int, canon: str | None) -> None:
+        if canon and not any(canon == n for _, n in found):
+            found.append((pos, canon))
+
+    for team in names:
+        m = re.search(r"\b" + re.escape(team) + r"\b", user_text, re.IGNORECASE)
+        if m:
+            _add(m.start(), canonical_team(team, strict=True))
+    for alias, canon in _ALIAS_TO_CANON.items():
+        m = re.search(r"\b" + re.escape(alias) + r"\b", user_text, re.IGNORECASE)
+        if m:
+            _add(m.start(), canon)
+
+    found.sort()
+    return [n for _, n in found]
+
+
+def _fixture_opponent(team: str, fixtures: list[dict] | None) -> str | None:
+    """Scheduled opponent of `team` from the fixtures list, else None."""
+    for f in fixtures or []:
+        ht = canonical_team(f.get("home_team"), strict=True)
+        at = canonical_team(f.get("away_team"), strict=True)
+        if ht == team and at:
+            return at
+        if at == team and ht:
+            return ht
+    return None
+
+
 def extract_matchup(
     user_text: str,
     fixtures: list[dict] | None = None,
     model: str = "claude-haiku-4-5-20251001",
+    current: tuple[str | None, str | None] | None = None,
 ) -> tuple[str, str] | None:
     """Parse free-form speech into a (home, away) matchup, or None if no teams found.
 
-    Tries Claude first for robustness; falls back to regex if the API is unavailable.
+    `current` is the matchup already in play. When it is set, switching is
+    CONSERVATIVE: we only change the matchup if the utterance explicitly names
+    two known teams. A single-team mention or a misheard word is treated as a
+    follow-up (returns None → caller keeps the current matchup) instead of
+    silently spawning a phantom opponent like "That Spain" or "Oh".
     """
     fixtures = fixtures or []
+    have_current = bool(current and current[0] and current[1])
+
+    # Two confidently-known teams named outright → unambiguous pairing. This is
+    # the only way to switch matchups mid-conversation.
+    explicit = _explicit_known_teams(user_text, fixtures)
+    if len(explicit) >= 2:
+        return explicit[0], explicit[1]
+
+    # Mid-conversation with fewer than two named teams → it's a follow-up. Keep
+    # the current matchup rather than re-resolving (which mis-switched before).
+    if have_current:
+        return None
+
+    # Opening utterance: lean on Claude (best with aliases / typos), then regex.
     fixture_lines = "\n".join(
         f"- {f['home_team']} vs {f['away_team']} ({f.get('date', '')})"
         for f in fixtures[:50]
     ) or "(no upcoming fixtures available)"
-
     system = f"{_MATCHUP_SYSTEM}\nUpcoming fixtures:\n{fixture_lines}"
 
     try:
@@ -492,10 +619,14 @@ def extract_matchup(
         match = re.search(r"\{[^{}]*\}", raw)
         if match:
             data = json.loads(match.group(0))
-            home = canonical_team(data.get("home"))
-            away = canonical_team(data.get("away"))
+            home = canonical_team(data.get("home"), strict=True)
+            away = canonical_team(data.get("away"), strict=True)
             if home and away:
                 return home, away
+            if home and not away:
+                opp = _fixture_opponent(home, fixtures)
+                if opp:
+                    return home, opp
     except Exception:
         pass
 
@@ -689,6 +820,98 @@ def ask(
         pass
 
     return _rule_based_verdict(build_fact_block(home, away, neutral, live_data, live_score), question)
+
+
+# ─── Web-search consensus (Claude searches the web like Google) ─────────────────
+
+# Web search needs a longer timeout than the voice client — the server-side tool
+# loop can take several seconds. Kept separate so it never slows the voice path.
+_WEB_CLIENT: anthropic.Anthropic | None = None
+
+
+def _web_client() -> anthropic.Anthropic:
+    global _WEB_CLIENT
+    if _WEB_CLIENT is None:
+        _WEB_CLIENT = anthropic.Anthropic(
+            api_key=os.environ["ANTHROPIC_API_KEY"], timeout=60.0, max_retries=1
+        )
+    return _WEB_CLIENT
+
+
+_WEB_PROMPT = """\
+Search the web for the latest win/draw/loss probabilities or betting odds for the \
+upcoming match {home} vs {away} (treat it as a neutral-venue World Cup fixture). Look at \
+how sites like Google, bookmakers, and prediction models price it.
+
+Then convert what you find into three probabilities that sum to 1 and reply with ONLY a \
+single JSON object, no prose, no markdown fences:
+{{"home_prob": <0-1>, "draw_prob": <0-1>, "away_prob": <0-1>, "summary": "<one short \
+sentence on the web consensus>"}}
+
+home_prob is {home} winning, away_prob is {away} winning. If the web has no real data for \
+this exact matchup, return {{"home_prob": null, "draw_prob": null, "away_prob": null, \
+"summary": "no reliable web data for this matchup"}}."""
+
+
+def web_consensus(home: str, away: str, model: str = "claude-opus-4-8") -> dict | None:
+    """Use Claude's web-search tool to fetch a web/bookmaker consensus for the matchup.
+
+    Returns {"source": "Web (Claude search)", "home_prob", "draw_prob", "away_prob",
+    "summary", "citations": [...]} — probs may be None when the web has no data.
+    Returns None on any error (API unavailable, no credits, etc.). Never raises.
+    Slower than the model (server-side search loop), so callers should gate it behind
+    an explicit request rather than the live voice turn.
+    """
+    try:
+        client = _web_client()
+        resp = client.messages.create(
+            model=model,
+            max_tokens=1024,
+            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 4}],
+            messages=[{"role": "user", "content": _WEB_PROMPT.format(home=home, away=away)}],
+        )
+    except Exception:
+        return None
+
+    text_parts: list[str] = []
+    citations: list[dict] = []
+    for block in resp.content:
+        btype = getattr(block, "type", None)
+        if btype == "text":
+            text_parts.append(block.text)
+        elif btype == "web_search_tool_result":
+            results = getattr(block, "content", None) or []
+            if isinstance(results, list):
+                for r in results[:5]:
+                    title = getattr(r, "title", None)
+                    url = getattr(r, "url", None)
+                    if title or url:
+                        citations.append({"title": title, "url": url})
+
+    text = "\n".join(text_parts)
+    m = re.search(r"\{[^{}]*\}", text)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(0))
+    except Exception:
+        return None
+
+    def _p(v) -> float | None:
+        try:
+            f = float(v)
+            return f if 0.0 <= f <= 1.0 else None
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "source": "Web (Claude search)",
+        "home_prob": _p(data.get("home_prob")),
+        "draw_prob": _p(data.get("draw_prob")),
+        "away_prob": _p(data.get("away_prob")),
+        "summary": data.get("summary"),
+        "citations": citations,
+    }
 
 
 def build_system_prompt(

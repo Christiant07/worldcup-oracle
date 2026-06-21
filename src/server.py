@@ -37,6 +37,7 @@ from src.analyst import (
     build_system_prompt,
     extract_matchup,
     parse_live_score,
+    parse_minute_only,
     parse_score_only,
     _rule_based_verdict,
 )
@@ -114,6 +115,87 @@ def _fixtures() -> list[dict]:
 
 def _session(session_id: str) -> dict:
     return _SESSIONS.setdefault(session_id, {"home": None, "away": None, "history": [], "live_score": None})
+
+
+_WIN_VERBS = r"winning|leading|ahead|in front|on top|up"
+_LOSE_VERBS = r"losing|trailing|behind|chasing|lost|down"
+
+
+def _team_tokens(name: str) -> list[str]:
+    return [t for t in re.sub(r"[^a-z ]", " ", name.lower()).split() if len(t) >= 3]
+
+
+def _team_state(transcript: str, tokens: list[str]) -> str | None:
+    """Return 'win' / 'lose' if the transcript says this team is winning/losing, else None."""
+    if not tokens:
+        return None
+    alt = "|".join(re.escape(t) for t in tokens)
+    win_re = re.compile(
+        rf"\b(?:{alt})\b.{{0,40}}\b(?:{_WIN_VERBS})\b"
+        rf"|\b(?:{_WIN_VERBS})\b.{{0,25}}\b(?:{alt})\b",
+        re.I,
+    )
+    lose_re = re.compile(
+        rf"\b(?:{alt})\b.{{0,40}}\b(?:{_LOSE_VERBS})\b"
+        rf"|\b(?:{_LOSE_VERBS})\b.{{0,25}}\b(?:{alt})\b",
+        re.I,
+    )
+    if win_re.search(transcript):
+        return "win"
+    if lose_re.search(transcript):
+        return "lose"
+    return None
+
+
+def _orient_score(
+    live_score: tuple[int, int, int],
+    transcript: str,
+    home: str,
+    away: str,
+) -> tuple[int, int, int]:
+    """Orient (home_goals, away_goals) so the leader matches what the transcript says.
+
+    Handles, in priority order:
+    - "Spain are losing one-nil" / "Spain are two-nil up" → verb attached to a team
+    - "Iran winning" / "Brazil leading"                  → away team in front
+    - "Iran 1-0 at 20 minutes"                           → away name before the score
+    The parser returns goals in spoken order; this decides which side they belong to.
+    """
+    hg, ag, minute = live_score
+    if hg == ag or not home or not away:
+        return live_score
+
+    hi, lo = max(hg, ag), min(hg, ag)
+    home_tokens, away_tokens = _team_tokens(home), _team_tokens(away)
+
+    # 1. Explicit winning/losing verb tied to either team.
+    home_state = _team_state(transcript, home_tokens)
+    away_state = _team_state(transcript, away_tokens)
+    home_ahead: bool | None = None
+    if home_state == "win" or away_state == "lose":
+        home_ahead = True
+    elif home_state == "lose" or away_state == "win":
+        home_ahead = False
+
+    if home_ahead is True:
+        return hi, lo, minute
+    if home_ahead is False:
+        return lo, hi, minute
+
+    # 2. Fallback: away team name appears before the first score digit ("Iran 1-0").
+    tl = transcript.lower()
+    if away_tokens:
+        score_pos = len(tl)
+        for n in (hg, ag):
+            p = tl.find(str(n))
+            if p != -1 and p < score_pos:
+                score_pos = p
+        for tok in away_tokens:
+            pos = tl.find(tok)
+            if pos != -1 and pos < score_pos:
+                return ag, hg, minute
+
+    return live_score
 
 
 def _keyterms() -> list[str]:
@@ -229,6 +311,26 @@ def _safe_odds(home: str, away: str) -> dict | None:
         return None
 
 
+def _safe_web_probs(home: str, away: str) -> dict | None:
+    """Google-scraped win probabilities (Browserbase), degrading to None on failure."""
+    try:
+        from src.scraper import get_web_probabilities
+
+        return get_web_probabilities(home, away)
+    except Exception:
+        return None
+
+
+def _safe_web_consensus(home: str, away: str) -> dict | None:
+    """Claude web-search consensus, degrading to None on any failure."""
+    try:
+        from src.analyst import web_consensus
+
+        return web_consensus(home, away)
+    except Exception:
+        return None
+
+
 # ─── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -316,6 +418,36 @@ async def odds_endpoint(home: str, away: str) -> JSONResponse:
     return JSONResponse(data)
 
 
+@app.get("/web-odds")
+async def web_odds_endpoint(home: str, away: str) -> JSONResponse:
+    """Compare the Oracle's model against how the web prices the match.
+
+    Aggregates every available source, each best-effort and independent:
+      - oracle:     our model's W/D/L (always present)
+      - market:     Polymarket prediction-market odds (fast API, may be null)
+      - google:     Google's win-probability scrape via Browserbase (may be null)
+      - web:        Claude web-search consensus with citations (slower, may be null)
+
+    Gated behind an explicit call (a "check the web" button), NOT the voice turn,
+    because the Claude web search adds a few seconds.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        oracle = predict(home, away, neutral=True)
+    except Exception:
+        oracle = None
+
+    market, google, web = await asyncio.gather(
+        loop.run_in_executor(None, _safe_odds, home, away),
+        loop.run_in_executor(None, _safe_web_probs, home, away),
+        loop.run_in_executor(None, _safe_web_consensus, home, away),
+    )
+    return JSONResponse(
+        {"home": home, "away": away, "oracle": oracle,
+         "market": market, "google": google, "web": web}
+    )
+
+
 @app.post("/ask")
 async def ask_endpoint(
     session_id: str = Form(...),
@@ -349,7 +481,9 @@ async def ask_endpoint(
 
     # 3. Detect a (new) matchup from free-form speech. Falls back to the
     #    current matchup for follow-ups ("what if their striker is injured?").
-    detected = extract_matchup(transcript, _fixtures())
+    detected = extract_matchup(
+        transcript, _fixtures(), current=(sess["home"], sess["away"])
+    )
     if detected:
         new_home, new_away = detected
         if new_home != sess["home"] or new_away != sess["away"]:
@@ -430,7 +564,12 @@ async def ask_stream_endpoint(
             return
 
         # 3. Detect matchup — only reset history when it's a *different* pair.
-        detected = await loop.run_in_executor(None, extract_matchup, transcript, _fixtures())
+        #    Pass the current matchup so switching is conservative (a misheard word
+        #    can't spawn a phantom opponent; follow-ups keep the current pair).
+        _cur = (sess["home"], sess["away"])
+        detected = await loop.run_in_executor(
+            None, lambda: extract_matchup(transcript, _fixtures(), current=_cur)
+        )
         if detected:
             new_home, new_away = detected
             if new_home != sess["home"] or new_away != sess["away"]:
@@ -472,18 +611,38 @@ async def ask_stream_endpoint(
         #   2. score only (no minute) → stored as score_only; Oracle qualitatively
         #      acknowledges the score and asks for the clock (wrong minute → wrong %)
         live_score = parse_live_score(transcript)
+        if live_score is not None and home and away:
+            live_score = _orient_score(live_score, transcript, home, away)
         score_only: tuple[int, int] | None = None
 
         if live_score is not None:
             # Full score+minute: persist in session and compute live probs.
             sess["live_score"] = live_score
+            sess["score_only"] = None
         else:
             # Check if utterance has a score but no minute.
             raw_score = parse_score_only(transcript)
+            minute_only = parse_minute_only(transcript)
             if raw_score is not None:
-                # Store score-only; don't overwrite a previously known minute.
-                sess["score_only"] = raw_score
-                score_only = raw_score
+                # Orient NOW using this turn's team mentions — a later turn that
+                # only supplies the minute ("eighty") won't name the teams.
+                oriented = _orient_score((raw_score[0], raw_score[1], 90), transcript, home, away)
+                raw_score = (oriented[0], oriented[1])
+                if minute_only is not None:
+                    # Score and minute both landed this turn → go live immediately.
+                    live_score = (raw_score[0], raw_score[1], minute_only)
+                    sess["live_score"] = live_score
+                    sess["score_only"] = None
+                else:
+                    # Store score-only; don't overwrite a previously known minute.
+                    sess["score_only"] = raw_score
+                    score_only = raw_score
+            elif minute_only is not None and sess.get("score_only"):
+                # The clock arrives in a later turn than the score → combine them.
+                sh, sa = sess["score_only"]
+                live_score = (sh, sa, minute_only)
+                sess["live_score"] = live_score
+                sess["score_only"] = None
             elif sess.get("live_score"):
                 # Follow-up with no new score → reuse the last full score.
                 live_score = sess["live_score"]

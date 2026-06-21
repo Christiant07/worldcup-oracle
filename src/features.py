@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from difflib import get_close_matches
 
 import numpy as np
 import pandas as pd
@@ -10,6 +11,53 @@ import pandas as pd
 N_RECENT = 10  # rolling form window
 ELO_K = 20     # standard Elo K-factor
 ELO_DEFAULT = 1500.0
+
+# Map every spelling we might see (football-data.org fixtures, STT output, common
+# aliases) onto the spelling the historical dataset — and therefore the model —
+# actually uses. WITHOUT this, e.g. football-data's "Côte d'Ivoire" / "IR Iran" /
+# "Cape Verde Islands" miss the Elo table and silently get a default 1500 rating,
+# which is exactly the "weird percentages" symptom. Keys are lowercased.
+ALIASES = {
+    "usa": "United States",
+    "u.s.a.": "United States",
+    "us": "United States",
+    "america": "United States",
+    "united states of america": "United States",
+    "ir iran": "Iran",
+    "côte d'ivoire": "Ivory Coast",
+    "cote d'ivoire": "Ivory Coast",
+    "cape verde islands": "Cape Verde",
+    "korea republic": "South Korea",
+    "korea": "South Korea",
+    "bosnia-herzegovina": "Bosnia and Herzegovina",
+    "bosnia": "Bosnia and Herzegovina",
+    "czechia": "Czech Republic",
+    "türkiye": "Turkey",
+    "turkiye": "Turkey",
+    "holland": "Netherlands",
+    "curacao": "Curaçao",
+}
+
+
+def resolve_team(name: str | None, elo: dict[str, float]) -> str | None:
+    """Snap a free-form team name onto the model's known Elo key.
+
+    Tries exact, alias, case-insensitive, then a tight fuzzy match. Returns the
+    input unchanged if nothing resolves (so callers can still fall back to a
+    default Elo), or None for an empty name.
+    """
+    if not name:
+        return name
+    if name in elo:
+        return name
+    low = name.strip().lower()
+    if low in ALIASES and ALIASES[low] in elo:
+        return ALIASES[low]
+    lower_map = {k.lower(): k for k in elo}
+    if low in lower_map:
+        return lower_map[low]
+    match = get_close_matches(name, list(elo), n=1, cutoff=0.86)
+    return match[0] if match else name
 
 FEATURE_COLS = [
     "elo_home",
@@ -97,6 +145,8 @@ def features_for_matchup(
     form: dict[str, deque],
 ) -> pd.DataFrame:
     """Single-row feature DataFrame for inference."""
+    home = resolve_team(home, elo)
+    away = resolve_team(away, elo)
     r_h = elo.get(home, ELO_DEFAULT)
     r_a = elo.get(away, ELO_DEFAULT)
     h_win_rate, h_avg_gd = _form_stats(form.get(home, deque()))

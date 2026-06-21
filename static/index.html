@@ -407,6 +407,24 @@ header p{color:var(--muted);font-size:13px;margin-top:8px;
 .odds-row .od.mkt b{color:var(--blue);}
 .odds-row .od-sep{color:var(--muted2);}
 .odds-row.checking{color:var(--muted2);font-style:italic;}
+.web-check-btn{margin-top:8px;font:inherit;font-size:11px;font-weight:600;cursor:pointer;
+  color:var(--text);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);
+  border-radius:999px;padding:5px 12px;transition:background .15s,border-color .15s;}
+.web-check-btn:hover:not(:disabled){background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.28);}
+.web-check-btn:disabled{opacity:.65;cursor:default;}
+.web-odds-box{margin-top:8px;padding:10px 12px;border-radius:12px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);}
+.web-odds-title{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;
+  color:var(--muted2);margin-bottom:6px;}
+.od-line{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:11px;
+  color:var(--muted);padding:2px 0;}
+.od-line .od-src{min-width:54px;font-weight:700;color:var(--text);}
+.od-line .od-v{display:inline-flex;gap:4px;}
+.od-line .od-v b{color:var(--text);font-variant-numeric:tabular-nums;}
+.web-summary{margin-top:7px;font-size:11px;color:var(--muted);line-height:1.45;}
+.web-cites{margin-top:5px;font-size:10px;color:var(--muted2);}
+.web-cites a{color:var(--blue);text-decoration:none;}
+.web-cites a:hover{text-decoration:underline;}
 
 /* ── LIVE badge on a verdict ── */
 .live-badge{
@@ -764,12 +782,77 @@ async function enrichMatchup(home,away,probs,bubbleEl){
   let html="";
   if(live && live.live) html+=liveBadgeHtml(live,home,away);
   if(odds) html+=oddsRowHtml(odds,probs,home);
+  // Always offer a deep web check — Google + bookmaker consensus via Claude search.
+  html+=webCheckBtnHtml();
   box.innerHTML=html;
+  wireWebCheck(box, home, away, probs);
 
   if(liveProbs) updateBarsInBubble(bubbleEl, home, away, live, liveProbs);
   scrollChat();
 
   if(live && live.live) scheduleLiveRefresh(home,away,box,probs,bubbleEl);
+}
+
+// ─── Deep web check: Oracle vs Google vs bookmakers (Claude web search) ──────────
+function webCheckBtnHtml(){
+  return `<button class="web-check-btn" type="button">🌐 Check the web</button>`+
+         `<div class="web-odds"></div>`;
+}
+
+function wireWebCheck(box, home, away, probs){
+  const btn=box.querySelector(".web-check-btn");
+  const out=box.querySelector(".web-odds");
+  if(!btn||!out) return;
+  btn.addEventListener("click", async ()=>{
+    if(btn.disabled) return;
+    btn.disabled=true;
+    btn.textContent="🌐 Searching the web…";
+    out.innerHTML='<div class="odds-row checking">Asking the web how it prices this one…</div>';
+    try{
+      const q=`home=${encodeURIComponent(home)}&away=${encodeURIComponent(away)}`;
+      const data=await fetch(`/web-odds?${q}`).then(r=>r.json());
+      out.innerHTML=webOddsHtml(data, probs, home, away);
+      btn.style.display="none";
+    }catch(e){
+      out.innerHTML='<div class="odds-row">Couldn’t reach the web right now.</div>';
+      btn.disabled=false;
+      btn.textContent="🌐 Check the web";
+    }
+    scrollChat();
+  });
+}
+
+function srcRow(label, p, home){
+  if(!p) return "";
+  const hp=p.home_prob, dp=p.draw_prob, ap=p.away_prob;
+  if(hp==null && ap==null) return "";
+  const pct=v=>v==null?"—":Math.round(v*100)+"%";
+  return `<div class="od-line"><span class="od-src">${esc(label)}</span>`+
+    `<span class="od-v">${esc(home)} <b>${pct(hp)}</b></span>`+
+    `<span class="od-v">Draw <b>${pct(dp)}</b></span>`+
+    `<span class="od-v">${esc(p._awayName||"")} <b>${pct(ap)}</b></span></div>`;
+}
+
+function webOddsHtml(data, probs, home, away){
+  if(!data) return "";
+  const oracle = probs ? {home_prob:probs.W, draw_prob:probs.D, away_prob:probs.L, _awayName:away} : null;
+  const tag=o=>o?Object.assign(o,{_awayName:away}):o;
+  let rows="";
+  rows+=srcRow("Oracle", tag(oracle), home);
+  rows+=srcRow("Google", tag(data.google), home);
+  rows+=srcRow("Market", tag(data.market), home);
+  rows+=srcRow("Web", tag(data.web), home);
+  if(!rows) return `<div class="odds-row">No web pricing found for this matchup.</div>`;
+  let html=`<div class="web-odds-box"><div class="web-odds-title">How the web prices it</div>${rows}`;
+  const web=data.web;
+  if(web && web.summary) html+=`<div class="web-summary">${esc(web.summary)}</div>`;
+  if(web && web.citations && web.citations.length){
+    const links=web.citations.slice(0,3).filter(c=>c.url).map(c=>
+      `<a href="${esc(c.url)}" target="_blank" rel="noopener">${esc((c.title||c.url).slice(0,40))}</a>`).join(" · ");
+    if(links) html+=`<div class="web-cites">Sources: ${links}</div>`;
+  }
+  html+=`</div>`;
+  return html;
 }
 
 function scheduleLiveRefresh(home,away,box,probs,bubbleEl){
