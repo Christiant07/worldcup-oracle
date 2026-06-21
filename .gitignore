@@ -6,5 +6,5 @@ CLAUDE.md
 PLAN.md
 MEMORY.md
 PROJECT_SUMMARY.md
-data/
+data/*.tmp
 .DS_Store
