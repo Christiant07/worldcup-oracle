@@ -80,8 +80,16 @@ def upcoming_fixtures(competition: str = "WC") -> list[dict]:
                     "status": m.get("status", "SCHEDULED"),
                     "score": (
                         {
-                            "home": (m.get("score") or {}).get("fullTime", {}).get("home"),
-                            "away": (m.get("score") or {}).get("fullTime", {}).get("away"),
+                            "home": (
+                                (m.get("score") or {}).get("fullTime", {}).get("home")
+                                if (m.get("score") or {}).get("fullTime", {}).get("home") is not None
+                                else (m.get("score") or {}).get("halfTime", {}).get("home")
+                            ),
+                            "away": (
+                                (m.get("score") or {}).get("fullTime", {}).get("away")
+                                if (m.get("score") or {}).get("fullTime", {}).get("away") is not None
+                                else (m.get("score") or {}).get("halfTime", {}).get("away")
+                            ),
                         }
                         if m.get("status") in ("IN_PLAY", "PAUSED")
                         else None
